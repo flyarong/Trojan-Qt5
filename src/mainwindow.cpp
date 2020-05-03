@@ -1,27 +1,19 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 
-#include "advancesettingsdialog.h"
 #include "connection.h"
-#include "editdialog.h"
+#include "sseditdialog.h"
+#include "ssreditdialog.h"
+#include "trojaneditdialog.h"
 #include "urihelper.h"
 #include "uriinputdialog.h"
 #include "userrules.h"
 #include "sharedialog.h"
 #include "settingsdialog.h"
 #include "qrcodecapturer.h"
-#include "trojanvalidator.h"
-
-#include <boost/version.hpp>
-#include <openssl/opensslv.h>
-#include "core/version.h"
-#include "qrencode.h"
-#if defined (Q_OS_WIN)
-#define VERSION "3.0.28 Binary"
-#else
-#include "privoxy/config.h"
-#endif
-#include "core/log.h"
+#include "generalvalidator.h"
+#include "midman.h"
+#include "aboutdialog.h"
 #include "logger.h"
 #include "QtAwesome.h"
 
@@ -73,6 +65,14 @@ MainWindow::MainWindow(ConfigHelper *confHelper, QWidget *parent) :
 
     setupActionIcon();
 
+    // setup statusbar
+    ui->statusbar->showMessage(QString("  SOCKS5 127.0.0.1:%1           HTTP 127.0.0.1:%2            PAC 127.0.0.1:%3            SPEED Up: %4 | Down: %5")
+            .arg(configHelper->getSocks5Port())
+            .arg(configHelper->getHttpPort())
+            .arg(configHelper->getPACPort())
+            .arg(QString::number(0))
+            .arg(QString::number(0)));
+
     sbMgr = new SubscribeManager(configHelper, this);
     notifier = new StatusNotifier(this, configHelper, sbMgr, this);
 
@@ -92,7 +92,6 @@ MainWindow::MainWindow(ConfigHelper *confHelper, QWidget *parent) :
             this, &MainWindow::onToggleConnection);
     connect(sbMgr, &SubscribeManager::addUri, this,
             &MainWindow::onAddURIFromSubscribe);
-
 
 
     //some UI changes accoding to config
@@ -120,6 +119,8 @@ MainWindow::MainWindow(ConfigHelper *confHelper, QWidget *parent) :
     //UI signals
     connect(ui->actionImportGUIJson, &QAction::triggered,
             this, &MainWindow::onImportGuiJson);
+    connect(ui->actionImportConfigYaml, &QAction::triggered,
+            this, &MainWindow::onImportConfigYaml);
     connect(ui->actionExportGUIJson, &QAction::triggered,
             this, &MainWindow::onExportGuiJson);
     connect(ui->actionExportShadowrocketJson, &QAction::triggered,
@@ -127,8 +128,12 @@ MainWindow::MainWindow(ConfigHelper *confHelper, QWidget *parent) :
     connect(ui->actionExportSubscribe, &QAction::triggered,
             this, &MainWindow::onExportTrojanSubscribe);
     connect(ui->actionQuit, &QAction::triggered, qApp, &QApplication::quit);
-    connect(ui->actionManually, &QAction::triggered,
-            this, &MainWindow::onAddManually);
+    connect(ui->actionManuallySS, &QAction::triggered,
+            this, [this]() { onAddManually("ss"); });
+    connect(ui->actionManuallySSR, &QAction::triggered,
+            this, [this]() { onAddManually("ssr"); });
+    connect(ui->actionManuallyTrojan, &QAction::triggered,
+            this, [this]() { onAddManually("trojan"); });
     connect(ui->actionQRCode, &QAction::triggered,
             this, &MainWindow::onAddScreenQRCode);
     connect(ui->actionScanQRCodeCapturer, &QAction::triggered,
@@ -159,8 +164,6 @@ MainWindow::MainWindow(ConfigHelper *confHelper, QWidget *parent) :
             this, &MainWindow::onMoveDown);
     connect(ui->actionGeneralSettings, &QAction::triggered,
             this, &MainWindow::onGeneralSettings);
-    connect(ui->actionAdvanceSettings, &QAction::triggered,
-            this, &MainWindow::onAdvanceSettings);
     connect(ui->actionUserRuleSerttings, &QAction::triggered,
             this, &MainWindow::onUserRuleSettings);
     connect(ui->actionAbout, &QAction::triggered, this, &MainWindow::onAbout);
@@ -257,7 +260,9 @@ void MainWindow::onToggleConnection(bool status)
         Connection *con = model->getItem(row)->getConnection();
         if (con->isValid()) {
             model->disconnectConnections();
+            //configHelper->isEnableServerLoadBalance() ? configHelper->generateHaproxyConf(*model) : void();
             con->start();
+            connect(con, &Connection::dataTrafficAvailable, this, &MainWindow::onStatusAvailable);
         }
     }
 }
@@ -265,7 +270,7 @@ void MainWindow::onToggleConnection(bool status)
 void MainWindow::onAddServerFromSystemTray(QString type)
 {
     if (type == "manually")
-        onAddManually();
+        onAddManually("trojan");
     else if (type == "qrcode")
         onAddScreenQRCode();
     else if (type == "pasteboard")
@@ -317,6 +322,19 @@ void MainWindow::onExportGuiJson()
     }
 }
 
+void MainWindow::onImportConfigYaml()
+{
+    QString file = QFileDialog::getOpenFileName(
+                   this,
+                   tr("Import Connections from config.yaml"),
+                   QString(),
+                   "Clash Configuration (config.yaml)");
+    if (!file.isNull()) {
+        configHelper->importConfigYaml(model, file);
+        configHelper->save(*model);
+    }
+}
+
 void MainWindow::onExportShadowrocketJson()
 {
     QString file = QFileDialog::getSaveFileName(
@@ -346,10 +364,10 @@ void MainWindow::onSaveManually()
     configHelper->save(*model);
 }
 
-void MainWindow::onAddManually()
+void MainWindow::onAddManually(QString type)
 {
     Connection *newCon = new Connection;
-    newProfile(newCon);
+    newProfile(type, newCon);
 }
 
 void MainWindow::onAddScreenQRCode()
@@ -364,7 +382,7 @@ void MainWindow::onAddScreenQRCode()
         Logger::warning("Can't find any QR code image that contains valid URI on your screen");
     } else {
         Connection *newCon = new Connection(uri, this);
-        newProfile(newCon);
+        newProfile("trojan", newCon);
     }
 }
 
@@ -397,7 +415,7 @@ void MainWindow::onAddQRCodeFile()
             Logger::warning("Can't find any QR code image that contains valid URI on your screen");
         } else {
             Connection *newCon = new Connection(uri, this);
-            newProfile(newCon);
+            newProfile("trojan", newCon);
         }
     }
 }
@@ -409,7 +427,7 @@ void MainWindow::onAddFromURI()
             inputDlg, &URIInputDialog::deleteLater);
     connect(inputDlg, &URIInputDialog::acceptedURI, [&](const QString &uri){
             Connection *newCon = new Connection(uri, this);
-            newProfile(newCon);
+            newProfile(newCon->getProfile().type, newCon);
     });
     inputDlg->exec();
 }
@@ -419,7 +437,7 @@ void MainWindow::onAddFromPasteBoardURI()
     QClipboard *board = QApplication::clipboard();
     QString str = board->text();
     for (QString uri: str.split("\\r\\n")) {
-        if (TrojanValidator::validate(uri)) {
+        if (GeneralValidator::validateSSR(uri) || GeneralValidator::validateTrojan(uri)) {
             Connection *newCon = new Connection(uri, this);
             model->appendConnection(newCon);
             configHelper->save(*model);
@@ -434,7 +452,7 @@ void MainWindow::onAddFromConfigJSON()
     if (!file.isNull()) {
         Connection *con = configHelper->configJsonToConnection(file);
         if (con) {
-            newProfile(con);
+            newProfile("trojan", con);
         }
     }
 }
@@ -464,9 +482,18 @@ void MainWindow::onEdit()
 
 void MainWindow::onShare()
 {
-    QByteArray uri = model->getItem(
+    QByteArray uri = "";
+    Connection *con = model->getItem(
                 proxyModel->mapToSource(ui->connectionView->currentIndex()).
-                row())->getConnection()->getURI();
+                row())->getConnection();
+
+    if (con->getProfile().type == "ss")
+        uri = con->getURI("ss");
+    else if (con->getProfile().type == "ssr")
+        uri = con->getURI("ssr");
+    else if (con->getProfile().type == "trojan")
+        uri = con->getURI("trojan");
+
     ShareDialog *shareDlg = new ShareDialog(uri, this);
     connect(shareDlg, &ShareDialog::finished,
             shareDlg, &ShareDialog::deleteLater);
@@ -479,7 +506,9 @@ void MainWindow::onConnect()
     Connection *con = model->getItem(row)->getConnection();
     if (con->isValid()) {
         model->disconnectConnections();
+        //configHelper->isEnableServerLoadBalance() ? configHelper->generateHaproxyConf(*model) : void();
         con->start();
+        connect(con, &Connection::dataTrafficAvailable, this, &MainWindow::onStatusAvailable);
     } else {
         QMessageBox::critical(this, tr("Invalid"),
                               tr("The connection's profile is invalid!"));
@@ -493,7 +522,9 @@ void MainWindow::onForceConnect()
     Connection *con = model->getItem(row)->getConnection();
     if (con->isValid()) {
         model->disconnectConnections();
+        //configHelper->isEnableServerLoadBalance() ? configHelper->generateHaproxyConf(*model) : void();
         con->start();
+        connect(con, &Connection::dataTrafficAvailable, this, &MainWindow::onStatusAvailable);
     } else {
         QMessageBox::critical(this, tr("Invalid"),
                               tr("The connection's profile is invalid!"));
@@ -512,7 +543,7 @@ void MainWindow::onToggleServerFromSystemTray(TQProfile profile)
     for (int i=0; i < ui->connectionView->model()->rowCount(); i++) {
         int row = proxyModel->mapToSource(ui->connectionView->model()->index(i,0)).row();
         TQProfile p = model->getItem(row)->getConnection()->getProfile();
-        if (p.toUri() == profile.toUri()) {
+        if (p.equals(profile)) {
             ui->connectionView->selectRow(i);
         }
     }
@@ -572,16 +603,6 @@ void MainWindow::onGeneralSettings()
     }
 }
 
-void MainWindow::onAdvanceSettings()
-{
-    AdvanceSettingsDialog *sDlg = new AdvanceSettingsDialog(configHelper, this);
-    connect(sDlg, &AdvanceSettingsDialog::finished,
-            sDlg, &AdvanceSettingsDialog::deleteLater);
-    if (sDlg->exec()) {
-        configHelper->save(*model);
-    }
-}
-
 void MainWindow::onUserRuleSettings()
 {
     UserRules *userRule = new UserRules(this);
@@ -590,10 +611,20 @@ void MainWindow::onUserRuleSettings()
     userRule->exec();
 }
 
-void MainWindow::newProfile(Connection *newCon)
+void MainWindow::newProfile(QString type, Connection *newCon)
 {
-    EditDialog *editDlg = new EditDialog(newCon, this);
-    connect(editDlg, &EditDialog::finished, editDlg, &EditDialog::deleteLater);
+    QDialog *editDlg = new QDialog(this);
+    if (type == "ss") {
+        editDlg = new SSEditDialog(newCon, this);
+        connect(editDlg, &SSEditDialog::finished, editDlg, &SSREditDialog::deleteLater);
+    } else if (type == "ssr") {
+        editDlg = new SSREditDialog(newCon, this);
+        connect(editDlg, &SSREditDialog::finished, editDlg, &SSREditDialog::deleteLater);
+    } else if (type == "trojan") {
+        editDlg = new TrojanEditDialog(newCon, this);
+        connect(editDlg, &TrojanEditDialog::finished, editDlg, &TrojanEditDialog::deleteLater);
+    }
+
     if (editDlg->exec()) {//accepted
         model->appendConnection(newCon);
         configHelper->save(*model);
@@ -605,8 +636,20 @@ void MainWindow::newProfile(Connection *newCon)
 void MainWindow::editRow(int row)
 {
     Connection *con = model->getItem(row)->getConnection();
-    EditDialog *editDlg = new EditDialog(con, this);
-    connect(editDlg, &EditDialog::finished, editDlg, &EditDialog::deleteLater);
+
+    QDialog *editDlg = new QDialog(this);
+    if (con->getProfile().type == "ss") {
+        editDlg = new SSEditDialog(con, this);
+        connect(editDlg, &SSEditDialog::finished, editDlg, &TrojanEditDialog::deleteLater);
+    }
+    else if (con->getProfile().type == "ssr") {
+        editDlg = new SSREditDialog(con, this);
+        connect(editDlg, &SSREditDialog::finished, editDlg, &TrojanEditDialog::deleteLater);
+    } else if (con->getProfile().type == "trojan") {
+        editDlg = new TrojanEditDialog(con, this);
+        connect(editDlg, &TrojanEditDialog::finished, editDlg, &TrojanEditDialog::deleteLater);
+    }
+
     if (editDlg->exec()) {
         configHelper->save(*model);
     }
@@ -646,34 +689,8 @@ void MainWindow::checkCurrentIndex(const QModelIndex &_index)
 
 void MainWindow::onAbout()
 {
-    QString text = QString("<h1>Trojan-Qt5</h1><p><b>Version %1</b><br/>"
-            "Using trojan %2, Privoxy %3<br>"
-            "Boost %4, %5<br>"
-            "LibQREncode %6</p>"
-            "<p>Copyright © 2014-2018 Symeon Huang "
-            "(<a href='https://twitter.com/librehat'>"
-            "@librehat</a>)</p>"
-            "<p>Copyright © 2019-2020 TheWanderingCoel "
-            "(<a href='https://github.com/TheWanderingCoel'>"
-            "@TheWanderingCoel</a>)</p>"
-            "<p>License: <a href='http://www.gnu.org/licenses/gpl.html'>"
-            "GNU General Public License Version 3</a><br />"
-            "Project Hosted at "
-            "<a href='https://github.com/TheWanderingCoel/Trojan-Qt5'>"
-            "GitHub</a><br />"
-            "Telegram Group "
-            "<a href='https://t.me/TrojanQt5'>"
-            "@TrojanQt5</a><br />"
-            "Telegram Channel "
-            "<a href='https://t.me/TrojanQt5News'>"
-            "@TrojanQt5News</a></p>")
-            .arg(QStringLiteral(APP_VERSION))
-            .arg(QString::fromStdString(Version::get_version()))
-            .arg(QStringLiteral(VERSION))
-            .arg(QStringLiteral(BOOST_LIB_VERSION))
-            .arg(QStringLiteral(OPENSSL_VERSION_TEXT))
-            .arg(QRcode_APIVersionString());
-    QMessageBox::about(this, tr("About"), text);
+    AboutDialog *aboutDialog = new AboutDialog(this);
+    aboutDialog->exec();
 }
 
 void MainWindow::onGuiLog()
@@ -720,7 +737,7 @@ void MainWindow::onQRCodeCapturerResultFound(const QString &uri)
     disconnect(capturer, &QRCodeCapturer::qrCodeFound,
                this, &MainWindow::onQRCodeCapturerResultFound);
     Connection *newCon = new Connection(uri, this);
-    newProfile(newCon);
+    newProfile("trojan", newCon);
 }
 
 void MainWindow::onCheckUpdate()
@@ -756,6 +773,30 @@ void MainWindow::closeEvent(QCloseEvent *e)
     }
 }
 
+void MainWindow::onStatusAvailable(const quint64 &u, const quint64 &d)
+{
+    ui->statusbar->showMessage(QString("  SOCKS5 127.0.0.1:%1                                       HTTP 127.0.0.1:%2                                       PAC 127.0.0.1:%3                                       SPEED Up: %4 | Down: %5")
+            .arg(configHelper->getSocks5Port())
+            .arg(configHelper->getHttpPort())
+            .arg(configHelper->getPACPort())
+            .arg(bytesConvertor(u))
+            .arg(bytesConvertor(d)));
+}
+
+QString MainWindow::bytesConvertor(const quint64 &t)
+{
+    if (t >= (double)1024L * (double)1024L * (double)1024L * (double)1024L)
+        return QString::number(t / (double)1024 / (double)1024 / (double)1024 / (double)1024, 'f', 2) + "TB/s";
+    else if (t >= (double)1024L * (double)1024L * (double)1024L)
+        return QString::number(t / (double)1024 / (double)1024 / (double)1024, 'f', 2) + "GB/s";
+    else if (t >= (double)1024 * (double)1024)
+        return QString::number(t / (double)1024 / (double)1024, 'f', 2) + "MB/s";
+    else if (t >= (double)1024)
+        return QString::number(t / (double)1024, 'f', 2) + "KB/s";
+    else
+        return QString::number(t, 'f', 2) + "B/s";
+}
+
 void MainWindow::setupActionIcon()
 {
 
@@ -772,13 +813,21 @@ void MainWindow::setupActionIcon()
     ui->actionMoveDown->setIcon(awesome->icon(fas::down));
     ui->actionImportGUIJson->setIcon(QIcon::fromTheme("document-import",
                                      QIcon::fromTheme("insert-text")));
+    ui->actionImportConfigYaml->setIcon(QIcon::fromTheme("document-import",
+                                     QIcon::fromTheme("insert-text")));
     ui->actionExportGUIJson->setIcon(QIcon::fromTheme("document-export",
                                      QIcon::fromTheme("document-save-as")));
     ui->actionExportShadowrocketJson->setIcon(QIcon::fromTheme("document-export",
                                               QIcon::fromTheme("document-save-as")));
     ui->actionExportSubscribe->setIcon(QIcon::fromTheme("document-export",
                                        QIcon::fromTheme("document-save-as")));
-    ui->actionManually->setIcon(QIcon::fromTheme("edit-guides",
+    ui->menuManually->setIcon(QIcon::fromTheme("edit-guides",
+                                          QIcon::fromTheme("accessories-text-editor")));
+    ui->actionManuallySS->setIcon(QIcon::fromTheme("edit-guides",
+                                QIcon::fromTheme("accessories-text-editor")));
+    ui->actionManuallySSR->setIcon(QIcon::fromTheme("edit-guides",
+                                QIcon::fromTheme("accessories-text-editor")));
+    ui->actionManuallyTrojan->setIcon(QIcon::fromTheme("edit-guides",
                                 QIcon::fromTheme("accessories-text-editor")));
     ui->actionURI->setIcon(QIcon::fromTheme("text-field",
                            QIcon::fromTheme("insert-link")));
@@ -788,8 +837,6 @@ void MainWindow::setupActionIcon()
                               QIcon::fromTheme("insert-image")));
     ui->actionScanQRCodeCapturer->setIcon(ui->actionQRCode->icon());
     ui->actionGeneralSettings->setIcon(QIcon::fromTheme("configure",
-                                       QIcon::fromTheme("preferences-desktop")));
-    ui->actionAdvanceSettings->setIcon(QIcon::fromTheme("configure",
                                        QIcon::fromTheme("preferences-desktop")));
     ui->actionUserRuleSerttings->setIcon(QIcon::fromTheme("configure",
                                          QIcon::fromTheme("preferences-desktop")));
@@ -812,7 +859,7 @@ void MainWindow::initSparkle()
     win_sparkle_set_appcast_url("https://raw.githubusercontent.com/TheWanderingCoel/Trojan-Qt5/master/resources/Appcast_Windows.xml");
     win_sparkle_set_app_details(reinterpret_cast<const wchar_t *>(QCoreApplication::organizationName().utf16()),
                                 reinterpret_cast<const wchar_t *>(QCoreApplication::applicationName().utf16()),
-                                reinterpret_cast<const wchar_t *>(QStringLiteral(VERSION).utf16()));
+                                reinterpret_cast<const wchar_t *>(QStringLiteral(APP_VERSION).utf16()));
     win_sparkle_set_dsa_pub_pem(reinterpret_cast<const char *>(QResource(":/pem/dsa_pub.pem").data()));
     win_sparkle_init();
 #elif defined (Q_OS_MAC)
@@ -832,9 +879,6 @@ void MainWindow::initLog()
 
     //Initialize the gui's log.
     Logger::init(guiLog);
-
-    //Redirect Trojan's log to our logfile.
-    Log::redirect(trojanLog.toLocal8Bit().data());
 
 }
 

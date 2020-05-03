@@ -40,6 +40,7 @@ public:
     void onCopyTerminalProxy();
     void onSetProxyToTelegram();
     void onTrojanSubscribeSettings();
+    void showServerSpeedPlot();
 
 signals:
     void toggleConnection(bool);
@@ -49,6 +50,7 @@ public slots:
     void onToggleMode(QAction *action);
     void onToggleConnection();
     void onToggleServer(QAction *actived);
+    void onToggleServerLoadBalance(bool checked);
     void showNotification(const QString &);
     void changeIcon(bool started);
     void onWindowVisibleChanged(bool visible);
@@ -67,6 +69,7 @@ private:
     QAction *pacModeAction;
     QAction *globalModeAction;
     QAction *advanceModeAction;
+    QAction *serverLoadBalance;
     QAction *addManually;
     QAction *addFromScreenQRCode;
     QAction *addFromPasteBoardUri;
@@ -86,9 +89,13 @@ private:
     QActionGroup *ModeGroup;
     QActionGroup *ServerGroup;
 
+    QAction *serverSpeedPlot;
     QAction *copyTerminalProxyCommand;
     QAction *setProxyToTelegram;
     QAction *minimiseRestoreAction;
+#if defined (Q_OS_WIN)
+    QAction *installTapDriver;
+#endif
     QSystemTrayIcon systray;
     MainWindow *window;
     ConfigHelper *helper;

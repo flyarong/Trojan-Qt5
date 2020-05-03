@@ -22,33 +22,55 @@
 #include <QDataStream>
 #include <QDate>
 #include <QDateTime>
+#include <QUrl>
 
 struct TQProfile
 {
     TQProfile();
     TQProfile(const QString &uri);
 
-    TQProfile fromUri(const std::string& trojanUri) const;
-    QString toUri() const;
+    TQProfile fromSSUri(const std::string& ssUri) const;
+    TQProfile fromSSRUri(const std::string& trojanUri) const;
+    TQProfile fromTrojanUri(const std::string& trojanUri) const;
+    QString toSSUri() const;
+    QString toSSRUri() const;
+    QString toTrojanUri() const;
+
+    bool equals(const TQProfile &profile) const;
 
     bool autoStart;
-    bool isSubscribe;
     quint16 serverPort;
+    QString type;
+    QString group;
     QString name;
     QString serverAddress;
     QString password;
     QString sni;
+    QString websocketPath;
+    QString websocketHostname;
+    QString websocketObfsPassword;
     bool verifyCertificate;
     bool verifyHostname;
     bool reuseSession;
     bool sessionTicket;
     bool reusePort;
     bool tcpFastOpen;
+    bool mux;
+    bool websocket;
+    bool websocketDoubleTLS;
     int latency;
     quint64 currentUsage;
     quint64 totalUsage;
     QDateTime lastTime;//last time this connection is used
     QDate nextResetDate;//next scheduled date to reset data usage
+    // ss/ssr only
+    QString method;
+    QString protocol;
+    QString protocolParam;
+    QString obfs;
+    QString obfsParam;
+    QString plugin;
+    QString pluginParam;
 
     static const int LATENCY_TIMEOUT = -1;
     static const int LATENCY_ERROR = -2;

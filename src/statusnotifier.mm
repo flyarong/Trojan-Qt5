@@ -1,9 +1,11 @@
 #include "statusnotifier.h"
 #include "mainwindow.h"
-#include "pacserver.h"
+#include "pachelper.h"
 #include "systemproxyhelper.h"
 #include "subscribedialog.h"
 #include "subscribemanager.h"
+#include "speedplot.h"
+
 #include <QApplication>
 #include <QClipboard>
 #include <Cocoa/Cocoa.h>
@@ -69,7 +71,7 @@ void StatusNotifier::initActions()
     ModeMenu->addAction(disableModeAction);
     ModeMenu->addAction(pacModeAction);
     ModeMenu->addAction(globalModeAction);
-    //ModeMenu->addAction(advanceModeAction);
+    ModeMenu->addAction(advanceModeAction);
     if (helper->getSystemProxySettings() == "pac")
         pacModeAction->setChecked(true);
     else if (helper->getSystemProxySettings() == "global")
@@ -124,6 +126,10 @@ void StatusNotifier::initActions()
     subscribeMenu->addAction(updateSubscribe);
     subscribeMenu->addAction(updateSubscribeBypass);
 
+    serverLoadBalance = new QAction(tr("Server Load Balance"));
+    serverLoadBalance->setCheckable(true);
+
+    serverSpeedPlot = new QAction(tr("Server Speed Plot"));
     copyTerminalProxyCommand = new QAction(tr("Copy terminal proxy command"));
     setProxyToTelegram = new QAction(tr("Set Proxy to Telegram"));
 
@@ -133,8 +139,12 @@ void StatusNotifier::initActions()
     systrayMenu.addSeparator();
     systrayMenu.addMenu(ModeMenu);
     systrayMenu.addMenu(pacMenu);
+    systrayMenu.addSeparator();
     systrayMenu.addMenu(serverMenu);
     systrayMenu.addMenu(subscribeMenu);
+    systrayMenu.addAction(serverLoadBalance);
+    systrayMenu.addSeparator();
+    systrayMenu.addAction(serverSpeedPlot);
     systrayMenu.addAction(copyTerminalProxyCommand);
     systrayMenu.addAction(setProxyToTelegram);
     systrayMenu.addSeparator();
@@ -143,25 +153,27 @@ void StatusNotifier::initActions()
     connect(addManually, &QAction::triggered, window, [=]() { window->onAddServerFromSystemTray("manually"); });
     connect(addFromScreenQRCode, &QAction::triggered, window, [=]() { window->onAddServerFromSystemTray("qrcode"); });
     connect(addFromPasteBoardUri, &QAction::triggered, window, [=]() { window->onAddServerFromSystemTray("pasteboard"); });
+    connect(serverLoadBalance, &QAction::triggered, this, [this]() { onToggleServerLoadBalance(serverLoadBalance->isChecked()); });
     connect(ModeGroup, SIGNAL(triggered(QAction*)), this, SLOT(onToggleMode(QAction*)));
     connect(ServerGroup, SIGNAL(triggered(QAction*)), this, SLOT(onToggleServer(QAction*)));
 }
 
 void StatusNotifier::initConnections()
 {
-    PACServer *pacserver = new PACServer();
-    connect(updatePACToBypassLAN, &QAction::triggered, pacserver, [=]() { pacserver->typeModify("LAN"); });
-    connect(updatePACToChnWhite, &QAction::triggered, pacserver, [=]() { pacserver->typeModify("WHITE"); });
-    connect(updatePACToChnWhiteAdvanced, &QAction::triggered, pacserver, [=]() { pacserver->typeModify("WHITE_ADVANCED"); });
-    connect(updatePACToChnIP, &QAction::triggered, pacserver, [=]() { pacserver->typeModify("CNIP"); });
-    connect(updatePACToGFWList, &QAction::triggered, pacserver, [=]() { pacserver->typeModify("GFWLIST"); });
-    connect(updatePACToChnOnly, &QAction::triggered, pacserver, [=]() { pacserver->typeModify("WHITE_R"); });
-    connect(copyPACUrl, &QAction::triggered, pacserver, [=]() { pacserver->copyPACUrl(); });
-    connect(editLocalPACFile, &QAction::triggered, pacserver, [=]() { pacserver->editLocalPACFile(); });
-    connect(editGFWListUserRule, &QAction::triggered, pacserver, [=]() { pacserver->editUserRule(); });
+    PACHelper *pachelper = new PACHelper();
+    connect(updatePACToBypassLAN, &QAction::triggered, pachelper, [=]() { pachelper->typeModify("LAN"); });
+    connect(updatePACToChnWhite, &QAction::triggered, pachelper, [=]() { pachelper->typeModify("WHITE"); });
+    connect(updatePACToChnWhiteAdvanced, &QAction::triggered, pachelper, [=]() { pachelper->typeModify("WHITE_ADVANCED"); });
+    connect(updatePACToChnIP, &QAction::triggered, pachelper, [=]() { pachelper->typeModify("CNIP"); });
+    connect(updatePACToGFWList, &QAction::triggered, pachelper, [=]() { pachelper->typeModify("GFWLIST"); });
+    connect(updatePACToChnOnly, &QAction::triggered, pachelper, [=]() { pachelper->typeModify("WHITE_R"); });
+    connect(copyPACUrl, &QAction::triggered, pachelper, [=]() { pachelper->copyPACUrl(); });
+    connect(editLocalPACFile, &QAction::triggered, pachelper, [=]() { pachelper->editLocalPACFile(); });
+    connect(editGFWListUserRule, &QAction::triggered, pachelper, [=]() { pachelper->editUserRule(); });
     connect(subscribeSettings, &QAction::triggered, this, [this]() { onTrojanSubscribeSettings(); });
     connect(updateSubscribe, &QAction::triggered, sbMgr, [=]() { sbMgr->updateAllSubscribes(true); });
     connect(updateSubscribeBypass, &QAction::triggered, sbMgr, [=]() { sbMgr->updateAllSubscribes(false); });
+    connect(serverSpeedPlot, &QAction::triggered, this, [this]() { showServerSpeedPlot(); });
     connect(copyTerminalProxyCommand, &QAction::triggered, this, [this]() { onCopyTerminalProxy(); });
     connect(setProxyToTelegram, &QAction::triggered, this, [this]() { onSetProxyToTelegram(); });
 }
@@ -176,6 +188,8 @@ void StatusNotifier::updateMenu()
         disableModeAction->setChecked(true);
     else if (helper->getSystemProxySettings() == "advance")
         advanceModeAction->setChecked(true);
+
+    serverLoadBalance->setChecked(helper->isEnableServerLoadBalance());
 }
 
 void StatusNotifier::updateServersMenu()
@@ -188,9 +202,15 @@ void StatusNotifier::updateServersMenu()
     for (int i=0; i<serverList.size(); i++) {
         QAction *action = new QAction(serverList[i].name, ServerGroup);
         action->setCheckable(false);
-        action->setIcon(QIcon(":/icons/icons/trojan_off.png"));
-        if (serverList[i].toUri() == actived.toUri())
-            action->setIcon(QIcon(":/icons/icons/trojan_on.png"));
+        if (serverList[i].type == "ssr") {
+            action->setIcon(QIcon(":/icons/icons/ssr_off.png"));
+            if (serverList[i].equals(actived))
+                action->setIcon(QIcon(":/icons/icons/ssr_on.png"));
+        } else if (serverList[i].type == "trojan") {
+            action->setIcon(QIcon(":/icons/icons/trojan_off.png"));
+            if (serverList[i].equals(actived))
+                action->setIcon(QIcon(":/icons/icons/trojan_on.png"));
+        }
         serverMenu->addAction(action);
     }
 }
@@ -248,18 +268,25 @@ void StatusNotifier::onTrojanSubscribeSettings()
     sbDig->exec();
 }
 
+void StatusNotifier::onToggleServerLoadBalance(bool checked)
+{
+    helper->readGeneralSettings();
+    helper->setServerLoadBalance(checked);
+    changeIcon(helper->isTrojanOn());
+}
+
 void StatusNotifier::onCopyTerminalProxy()
 {
     QClipboard *board = QApplication::clipboard();
     if (helper->isEnableHttpMode())
-        board->setText(QString("export HTTP_PROXY=http://%1:%2; export HTTPS_PROXY=http://%1:%2; export ALL_PROXY=socks5://%3:%4").arg(helper->getHttpAddress()).arg(helper->getHttpPort()).arg(helper->getSocks5Address()).arg(helper->getSocks5Port()));
+        board->setText(QString("export HTTP_PROXY=http://127.0.0.1:%1; export HTTPS_PROXY=http://127.0.0.1:%1; export ALL_PROXY=socks5://127.0.0.1:%2").arg(helper->getHttpPort()).arg(helper->getSocks5Port()));
     else
-        board->setText(QString("export HTTP_PROXY=socks5://%1:%2; export HTTPS_PROXY=socks5://%1:%2; export ALL_PROXY=socks5://%1:%2").arg(helper->getSocks5Address()).arg(helper->getSocks5Port()));
+        board->setText(QString("export HTTP_PROXY=socks5://127.0.0.1:%1; export HTTPS_PROXY=socks5://127.0.0.1:%1; export ALL_PROXY=socks5://127.0.0.1:%1").arg(helper->getSocks5Port()));
 }
 
 void StatusNotifier::onSetProxyToTelegram()
 {
-    QDesktopServices::openUrl(QString("tg://socks?server=%1&port=%2").arg(helper->getSocks5Address()).arg(helper->getSocks5Port()));
+    QDesktopServices::openUrl(QString("tg://socks?server=127.0.0.1&port=%2").arg(helper->getSocks5Port()));
 }
 
 void StatusNotifier::activate()
@@ -287,6 +314,8 @@ void StatusNotifier::changeIcon(bool started)
 
         bool enabled = helper->getSystemProxySettings() != "direct";
         bool global = helper->getSystemProxySettings() == "global";
+        bool advance = helper->getSystemProxySettings() == "advance";
+        bool random = helper->isEnableServerLoadBalance();
         QString mode = helper->getSystemProxySettings();
         QImage image(QString(":/icons/icons/trojan-qt5_%1.png").arg(mode));
         QImage alpha = image.alphaChannel();
@@ -299,7 +328,13 @@ void StatusNotifier::changeIcon(bool started)
             mul_b = 0.4;
             mul_g = 0.65;
         }
-        mul_r = 0.4;
+        if (advance) {
+            mul_b = 0.2;
+            mul_g = 0.3;
+        }
+        if (!random) {
+            mul_r = 0.4;
+        }
 
         for (int x = 0; x < image.width(); x++) {
             for (int y = 0; y < image.height(); y++) {
@@ -322,6 +357,14 @@ void StatusNotifier::changeIcon(bool started)
         toggleTrojanAction->setText(tr("Turn On Trojan"));
         systray.setIcon(QIcon(":/icons/icons/trojan-qt5_off.png"));
     }
+}
+
+void StatusNotifier::showServerSpeedPlot()
+{
+    SpeedPlot *sp = new SpeedPlot();
+    sp->show();
+    sp->raise();
+    sp->setFocus();
 }
 
 void StatusNotifier::onWindowVisibleChanged(bool visible)

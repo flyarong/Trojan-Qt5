@@ -1,12 +1,17 @@
 #include "confighelper.h"
 #include "tun2socksthread.h"
-
-/*
-#include "3rd/tun2socks/tun2socks.h"
+#include <QProcess>
+#if defined (Q_OS_WIN)
+#include <QCoreApplication>
+#endif
+#include "3rd/trojan-qt5-libs/trojan-qt5-libs.h"
 
 Tun2socksThread::Tun2socksThread()
-{
+{}
 
+Tun2socksThread::~Tun2socksThread()
+{
+    stop();
 }
 
 void Tun2socksThread::run()
@@ -21,16 +26,19 @@ void Tun2socksThread::run()
     QString tunAddr = "240.0.0.2";
     QString tunGw = "240.0.0.1";
     QString tunDns = "8.8.4.4,8.8.8.8";
-    QString proxyServer = QString("%1:%2").arg(conf->getSocks5Address()).arg(conf->getSocks5Port());
+    QString proxyServer = QString("%1:%2").arg("127.0.0.1").arg(conf->getSocks5Port());
 
-#if defined(Q_OS_MAC)
+#if defined (Q_OS_WIN)
+    tunAddr = "10.0.0.2";
+    tunGw = "10.0.0.1";
+#elif defined (Q_OS_MAC)
     tunName = "utun1";
-    run_tun2socks(tunName.toLocal8Bit().data(), tunAddr.toLocal8Bit().data(), tunGw.toLocal8Bit().data(), tunDns.toLocal8Bit().data(), proxyServer.toLocal8Bit().data());
 #endif
+
+    run_tun2socks(tunName.toUtf8().data(), tunAddr.toUtf8().data(), tunGw.toUtf8().data(), tunDns.toUtf8().data(), proxyServer.toUtf8().data());
 }
 
 void Tun2socksThread::stop()
 {
-
+    stop_tun2socks();
 }
-*/

@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>540</width>
-    <height>540</height>
+    <height>527</height>
    </rect>
   </property>
   <property name="minimumSize">
@@ -84,7 +84,7 @@
    <string>Connection Manager</string>
   </property>
   <property name="windowIcon">
-   <iconset resource="../resources/icons.qrc">
+   <iconset>
     <normaloff>:/icons/icons/trojan-qt5.png</normaloff>:/icons/icons/trojan-qt5.png</iconset>
   </property>
   <property name="toolButtonStyle">
@@ -167,6 +167,11 @@ text-align: left;
     </item>
    </layout>
   </widget>
+  <widget class="QStatusBar" name="statusbar">
+   <property name="styleSheet">
+    <string notr="true">background: rgb(247,247,247);</string>
+   </property>
+  </widget>
   <widget class="QToolBar" name="toolBar">
    <property name="windowTitle">
     <string>Show Toolbar</string>
@@ -210,7 +215,7 @@ spacing: 35px;</string>
      <x>0</x>
      <y>0</y>
      <width>540</width>
-     <height>41</height>
+     <height>40</height>
     </rect>
    </property>
    <property name="minimumSize">
@@ -261,6 +266,14 @@ QMenu::item:selected {
     <property name="title">
      <string>&amp;Connection</string>
     </property>
+    <widget class="QMenu" name="menuManually">
+    <property name="title">
+      <string>&amp;Manually</string>
+     </property>
+     <addaction name="actionManuallySS"/>
+     <addaction name="actionManuallySSR"/>
+     <addaction name="actionManuallyTrojan"/>
+    </widget>
     <widget class="QMenu" name="menuAdd">
      <property name="title">
       <string>&amp;Add</string>
@@ -269,7 +282,7 @@ QMenu::item:selected {
       <iconset theme="list-add">
        <normaloff>.</normaloff>.</iconset>
      </property>
-     <addaction name="actionManually"/>
+     <addaction name="menuManually"/>
      <addaction name="actionURI"/>
      <addaction name="actionPasteBoardURI"/>
      <addaction name="actionQRCodeFromFile"/>
@@ -304,6 +317,7 @@ QMenu::item:selected {
      <string>Fi&amp;le</string>
     </property>
     <addaction name="actionImportGUIJson"/>
+    <addaction name="actionImportConfigYaml"/>
     <addaction name="actionExportGUIJson"/>
     <addaction name="actionExportShadowrocketJson"/>
     <addaction name="actionExportSubscribe"/>
@@ -321,7 +335,6 @@ QMenu::item:selected {
      <string>Settin&amp;gs</string>
     </property>
     <addaction name="actionGeneralSettings"/>
-    <addaction name="actionAdvanceSettings"/>
     <addaction name="actionUserRuleSerttings"/>
     <addaction name="separator"/>
     <addaction name="actionShowFilterBar"/>
@@ -350,12 +363,38 @@ QMenu::item:selected {
    <addaction name="menuSettings"/>
    <addaction name="menuHelp"/>
   </widget>
-  <action name="actionManually">
+  <action name="actionManuallySS">
    <property name="text">
-    <string>&amp;Manually</string>
+    <string>&amp;Add SS Manually</string>
    </property>
    <property name="toolTip">
-    <string>Add connection manually</string>
+    <string>Add SS connection manually</string>
+   </property>
+   <property name="font">
+    <font>
+     <family>Arial</family>
+    </font>
+   </property>
+  </action>
+  <action name="actionManuallySSR">
+   <property name="text">
+    <string>&amp;Add SSR Manually</string>
+   </property>
+   <property name="toolTip">
+    <string>Add SSR connection manually</string>
+   </property>
+   <property name="font">
+    <font>
+     <family>Arial</family>
+    </font>
+   </property>
+  </action>
+  <action name="actionManuallyTrojan">
+   <property name="text">
+    <string>&amp;Add Trojan Manually</string>
+   </property>
+   <property name="toolTip">
+    <string>Add Trojan connection manually</string>
    </property>
    <property name="font">
     <font>
@@ -518,16 +557,6 @@ QMenu::item:selected {
     <string>Ctrl+,</string>
    </property>
   </action>
-  <action name="actionAdvanceSettings">
-   <property name="text">
-    <string>&amp;Advance Settings</string>
-   </property>
-   <property name="font">
-    <font>
-     <family>Arial</family>
-    </font>
-   </property>
-  </action>
   <action name="actionShare">
    <property name="text">
     <string>&amp;Share</string>
@@ -577,6 +606,19 @@ QMenu::item:selected {
    </property>
    <property name="toolTip">
     <string>Import connections from old version configuration file</string>
+   </property>
+   <property name="font">
+    <font>
+     <family>Arial</family>
+    </font>
+   </property>
+  </action>
+  <action name="actionImportConfigYaml">
+   <property name="text">
+    <string>&amp;Import Connections from config.yaml</string>
+   </property>
+   <property name="toolTip">
+    <string>Import connections from clash configuration file</string>
    </property>
    <property name="font">
     <font>
@@ -760,7 +802,7 @@ QMenu::item:selected {
   </action>
   <action name="actionFromShadowrocketJson">
    <property name="icon">
-    <iconset theme="ui" resource="../resources/icons.qrc">
+    <iconset theme="ui">
      <normaloff>:/icons/actions/document-open.png</normaloff>:/icons/actions/document-open.png</iconset>
    </property>
    <property name="text">
@@ -779,9 +821,7 @@ QMenu::item:selected {
   </action>
  </widget>
  <layoutdefault spacing="6" margin="11"/>
- <resources>
-  <include location="../resources/icons.qrc"/>
- </resources>
+ <resources/>
  <connections>
   <connection>
    <sender>actionShowFilterBar</sender>

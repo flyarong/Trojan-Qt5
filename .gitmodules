@@ -1,12 +1,15 @@
-[submodule "src/trojan"]
-	path = src/trojan
-	url = https://github.com/trojan-gfw/trojan.git
-[submodule "3rd/qthttpserver"]
-	path = 3rd/qthttpserver
-	url = https://github.com/qt-labs/qthttpserver.git
 [submodule "src/plog"]
 	path = src/plog
 	url = https://github.com/SergiusTheBest/plog.git
 [submodule "src/QtAwesome"]
 	path = src/QtAwesome
 	url = https://github.com/TheWanderingCoel/QtAwesome.git
+[submodule "3rd/yaml-cpp"]
+	path = 3rd/yaml-cpp
+	url = https://github.com/jbeder/yaml-cpp.git
+[submodule "src/shadowsocksr-uvw"]
+	path = src/shadowsocksr-uvw
+	url = https://github.com/TheWanderingCoel/shadowsocksr-uvw.git
+[submodule "3rd/qhttpserver"]
+	path = 3rd/qhttpserver
+	url = https://github.com/TheWanderingCoel/qhttpserver.git

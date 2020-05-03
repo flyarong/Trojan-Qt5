@@ -1,21 +1,23 @@
 #include "addresstester.h"
 #include "connection.h"
 #include "confighelper.h"
-#include "pacserver.h"
+#include "pachelper.h"
 #include "portvalidator.h"
+#include "privilegeshelper.h"
+#include "trojangoapi.h"
+#include "3rd/trojan-qt5-libs/trojan-qt5-libs.h"
+#include "SSRThread.hpp"
 #include <QCoreApplication>
 #include <QDir>
 #include <QHostInfo>
 #include <QHostAddress>
 
 #include "logger.h"
-
-#include <boost/exception/all.hpp>
+#include "midman.h"
 
 Connection::Connection(QObject *parent) :
     QObject(parent),
-    running(false),
-    service(new ServiceThread(this))
+    running(false)
 {
 #ifdef Q_OS_WIN
     configFile = QCoreApplication::applicationDirPath() + "/config.ini";
@@ -23,7 +25,6 @@ Connection::Connection(QObject *parent) :
     QDir configDir = QDir::homePath() + "/.config/trojan-qt5";
     configFile = configDir.absolutePath() + "/config.ini";
 #endif
-    connect(service, &ServiceThread::startFailed, this, &Connection::onStartFailed);
 }
 
 Connection::Connection(const TQProfile &_profile, QObject *parent) :
@@ -53,9 +54,15 @@ const QString& Connection::getName() const
     return profile.name;
 }
 
-QByteArray Connection::getURI() const
+QByteArray Connection::getURI(QString type) const
 {
-    QString uri = profile.toUri();
+    QString uri = "";
+    if (type == "ss")
+        uri = profile.toSSUri();
+    else if (type == "ssr")
+        uri = profile.toSSRUri();
+    else if (type == "trojan")
+        uri = profile.toTrojanUri();
     return QByteArray(uri.toUtf8());
 }
 
@@ -97,17 +104,17 @@ void Connection::start()
         latencyTest();
     }
 
-    //MUST initialize there otherwise privoxy will not listen port
-    privoxy = new PrivoxyThread();
-
-    //initialize tun2socks
-    //tun2socks = new Tun2socksThread();
-
     ConfigHelper *conf = new ConfigHelper(configFile);
+
+    //MUST initialize there otherwise privoxy will not listen port
+    http = new HttpProxy();
+
+    //initialize tun2socks and route table helper
+    tun2socks = new Tun2socksThread();
+    rhelper = new RouteTableHelper(profile.serverAddress);
 
     //generate Config File that trojan and privoxy will use
     conf->connectionToJson(profile);
-    conf->generatePrivoxyConf();
 
 #ifdef Q_OS_WIN
     QString file = QCoreApplication::applicationDirPath() + "/config.json";
@@ -116,53 +123,106 @@ void Connection::start()
     QString file = configDir.absolutePath() + "/config.json";
 #endif
 
-    //load service config first
-    try {
-        service->config().load(file.toLocal8Bit().data());
-    } catch (boost::exception &e) {
-        Logger::error(QString::fromStdString(boost::diagnostic_information(e)));
+    if (profile.type == "ssr") {
+        //initalize ssr thread
+        ssr = std::make_unique<SSRThread>(conf->getSocks5Port(),
+                            profile.serverPort,
+                            6000,
+                            1500,
+                            SSRThread::SSR_WORK_MODE::TCP_AND_UDP,
+                            conf->isEnableIpv6Support() ? (conf->isShareOverLan() ? "::" : "::1") : (conf->isShareOverLan() ? "0.0.0.0" : "127.0.0.1"),
+                            profile.serverAddress.toStdString(),
+                            profile.method.toStdString(),
+                            profile.password.toStdString(),
+                            profile.obfs.toStdString(),
+                            profile.obfsParam.toStdString(),
+                            profile.protocol.toStdString(),
+                            profile.protocolParam.toStdString());
+        ssr->connect(ssr.get(), &SSRThread::OnDataReady, this, &Connection::onNewBytesTransmitted);
+        ssr->connect(ssr.get(), &SSRThread::onSSRThreadLog, this, &Connection::onLog);
     }
 
     //wait, let's check if port is in use
     if (conf->isCheckPortAvailability()) {
         PortValidator *pv = new PortValidator();
-        if (pv->isInUse(conf->getSocks5Port())) {
-            qCritical() << QString("Socks5 port %1 is being used").arg(QString::number(conf->getSocks5Port()));
-            Logger::error(QString("Socks5 port %1 is being used").arg(QString::number(conf->getSocks5Port())));
+        QString errorString = pv->isInUse(conf->getSocks5Port());
+        if (!errorString.isEmpty()) {
+            Logger::error(QString("can't bind socks5 port %1: %2").arg(QString::number(conf->getSocks5Port())).arg(errorString));
             return;
         }
 
-    //don't check http mode if httpMode is not enabled
-    if (conf->isEnableHttpMode())
-        if (pv->isInUse(conf->getHttpPort())) {
-            Logger::error(QString("Http port %1 is being used").arg(QString::number(conf->getHttpPort())));
-            return;
+        //don't check http mode if httpMode is not enabled
+        if (conf->isEnableHttpMode()) {
+            QString errorString = pv->isInUse(conf->getHttpPort());
+            if (!errorString.isEmpty()) {
+                Logger::error(QString("can't bind http port %1: %2").arg(QString::number(conf->getHttpPort())).arg(errorString));
+                return;
+            }
         }
     }
 
-    //set running status to true before we start trojan
+    //set running status to true before we start proxy
     running = true;
-    service->start();
 
-    //start privoxy if settings is configured to do so
+    if (profile.type == "ss") {
+        QString clientAddr = conf->isEnableIpv6Support() ? (conf->isShareOverLan() ? "::" : "::1") : (conf->isShareOverLan() ? "0.0.0.0" : "127.0.0.1");
+        clientAddr += ":" + QString::number(conf->getSocks5Port());
+        QString serverAddr = profile.serverAddress + ":" + QString::number(profile.serverPort);
+        startShadowsocksGo(clientAddr.toUtf8().data(),
+                           serverAddr.toUtf8().data(),
+                           profile.method.toUtf8().data(),
+                           profile.password.toUtf8().data(),
+                           profile.plugin.toUtf8().data(),
+                           profile.pluginParam.toUtf8().data());
+    }
+    else if (profile.type == "ssr") {
+        ssr->start();
+    } else if (profile.type == "trojan") {
+        startTrojanGo(file.toUtf8().data());
+        trojanGoAPI = new TrojanGoAPI();
+        trojanGoAPI->setPassword(profile.password);
+        trojanGoAPI->start();
+        connect(trojanGoAPI, &TrojanGoAPI::OnDataReady, this, &Connection::onNewBytesTransmitted);
+    }
+
+    // hack so we can get the connection
+    MidMan::setConnection(this);
+
+    QString localAddr = conf->isEnableIpv6Support() ? (conf->isShareOverLan() ? "::" : "::1") : (conf->isShareOverLan() ? "0.0.0.0" : "127.0.0.1");
+
+    //start http proxy if settings is configured to do so
     if (conf->isEnableHttpMode())
-        privoxy->start();
+        if (conf->getSystemProxySettings() != "advance")
+            http->httpListen(QHostAddress(localAddr),
+                             conf->getHttpPort(),
+                             conf->isEnableIpv6Support() ? (conf->isShareOverLan() ? "::" : "::1") : (conf->isShareOverLan() ? "0.0.0.0" : "127.0.0.1"),
+                             conf->getSocks5Port());
 
     //start tun2socks if settings is configured to do so
-    //if (conf->getSystemProxySettings() == "advance")
-        //tun2socks->start();
+    if (conf->getSystemProxySettings() == "advance") {
+        if (PrivilegesHelper::checkPrivileges()) {
+            tun2socks->start();
+            rhelper->set();
+           }
+        else {
+            PrivilegesHelper::showWarning();
+            onStartFailed();
+        }
+    }
 
     conf->setTrojanOn(running);
 
     emit stateChanged(running);
 
+    // notify the status Connection
+    connect(this, &Connection::connectionChanged, MidMan::getStatusConnection(), &Connection::onNotifyConnectionChanged);
+    emit connectionChanged();
 
     //set proxy settings after emit the signal
     if (conf->getSystemProxySettings() == "pac")
         SystemProxyHelper::setSystemProxy(2);
     else if (conf->getSystemProxySettings() == "global")
         SystemProxyHelper::setSystemProxy(1);
-
 }
 
 void Connection::stop()
@@ -172,16 +232,32 @@ void Connection::stop()
     if (running) {
         //set the running status to false first. */
         running = false;
-        service->stop();
 
-        //if we have started privoxy, stop it
+        if (profile.type == "ss") {
+            stopShadowsocksGo();
+        }
+        else if (profile.type == "ssr") {
+            ssr->stop();
+            ssr = nullptr;
+        }
+        else if (profile.type == "trojan") {
+            stopTrojanGo();
+            trojanGoAPI->stop();
+        }
+
+        //if we have started http proxy, stop it
         if (conf->isEnableHttpMode()) {
-            privoxy->stop();
+            http->close();
         }
 
         conf->setTrojanOn(running);
 
         emit stateChanged(running);
+
+        if (conf->getSystemProxySettings() == "advance") {
+            tun2socks->stop();
+            rhelper->reset();
+         }
 
         //set proxy settings after emit the signal
         if (conf->getSystemProxySettings() != "direct") {
@@ -195,14 +271,35 @@ void Connection::onStartFailed()
     ConfigHelper *conf = new ConfigHelper(configFile);
 
     running = false;
+
     conf->setTrojanOn(running);
+
+    if (profile.type == "ssr") {
+        ssr->stop();
+        ssr = nullptr;
+    }
+    else if (profile.type == "trojan") {
+        stopTrojanGo();
+        trojanGoAPI->stop();
+    }
+
+    //if we have started http proxy, stop it
+    if (conf->isEnableHttpMode()) {
+        http->close();
+    }
+
     emit stateChanged(running);
     emit startFailed();
 
     //set proxy settings if the setting is configured to do so
-    if (conf->getSystemProxySettings() != "direct") {
+    if (conf->getSystemProxySettings() != "direct" && conf->getSystemProxySettings() != "advance") {
         SystemProxyHelper::setSystemProxy(0);
     }
+}
+
+void Connection::onNotifyConnectionChanged()
+{
+    emit connectionSwitched();
 }
 
 void Connection::testAddressLatency(const QHostAddress &addr)
@@ -210,6 +307,19 @@ void Connection::testAddressLatency(const QHostAddress &addr)
     AddressTester *addrTester = new AddressTester(addr, profile.serverPort, this);
     connect(addrTester, &AddressTester::lagTestFinished, this, &Connection::onLatencyAvailable, Qt::QueuedConnection);
     addrTester->startLagTest();
+}
+
+void Connection::onTrojanConnectionDestoryed(Connection& connection, const uint64_t &download, const uint64_t &upload)
+{
+    connection.onNewBytesTransmitted(upload, download);
+}
+
+void Connection::onNewBytesTransmitted(const quint64 &u, const quint64 &d)
+{
+    profile.currentUsage += u + d;
+    profile.totalUsage += u + d;
+    emit dataUsageChanged(profile.currentUsage, profile.totalUsage);
+    emit dataTrafficAvailable(u, d);
 }
 
 void Connection::onServerAddressLookedUp(const QHostInfo &host)
@@ -225,4 +335,9 @@ void Connection::onLatencyAvailable(const int latency)
 {
     profile.latency = latency;
     emit latencyAvailable(latency);
+}
+
+void Connection::onLog(QString string)
+{
+    qDebug() << string;
 }

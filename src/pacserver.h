@@ -2,8 +2,9 @@
 #define PACSERVER_H
 
 #include <QObject>
-#include <QDir>
-#include <QHttpServer>
+#include "qhttprequest.h"
+#include "qhttpresponse.h"
+#include "qhttpserver.h"
 
 class PACServer: public QObject
 {
@@ -12,22 +13,14 @@ public:
     PACServer();
     ~PACServer();
 
-    QJsonDocument loadRules();
-
-    void modify(QString filename);
+    void listen();
+    QString loadPACFile();
 
 public slots:
-    void typeModify(QString type);
-    void copyPACUrl();
-    void editLocalPACFile();
-    void editUserRule();
+    void onHandleRequest(QHttpRequest *req, QHttpResponse *rsp);
 
 private:
-    QDir configDir;
-    QString configFile;
-    QString gfwList;
-    QString userRule;
-    QString pac;
+    QHttpServer server;
 };
 
 #endif // PACSERVER_H

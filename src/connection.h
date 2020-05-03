@@ -23,12 +23,14 @@
 #include <QHostInfo>
 #include <QHostAddress>
 #include <memory>
-#include "pacserver.h"
-#include "privoxythread.h"
-#include "servicethread.h"
+#include "httpproxy.h"
+#include "pachelper.h"
+#include "SSRThread.hpp"
 #include "tun2socksthread.h"
 #include "systemproxyhelper.h"
 #include "tqprofile.h"
+#include "routetablehelper.h"
+#include "trojangoapi.h"
 
 class Connection : public QObject
 {
@@ -44,35 +46,46 @@ public:
 
     const TQProfile &getProfile() const;
     const QString &getName() const;
-    QByteArray getURI() const;
+    QByteArray getURI(QString type) const;
     void setProfile(TQProfile p);
     bool isValid() const;
     const bool &isRunning() const;
     void latencyTest();
+    static void onTrojanConnectionDestoryed(Connection& connection, const uint64_t &, const uint64_t &);
 
 signals:
     void stateChanged(bool started);
     void latencyAvailable(const int);
     void newLogAvailable(const QString &);
     void dataUsageChanged(const quint64 &current, const quint64 &total);
+    void dataTrafficAvailable(const quint64 &up, const quint64 &down);
     void startFailed();
+    void connectionChanged();
+    void connectionSwitched();
+
 
 public slots:
     void start();
     void stop();
     void onStartFailed();
+    void onNotifyConnectionChanged();
+    void onLog(QString string);
 
 private:
     QString configFile;
-    PrivoxyThread *privoxy;
-    ServiceThread *service;
+    HttpProxy *http;
+    std::unique_ptr<SSRThread> ssr;
     Tun2socksThread *tun2socks;
+    RouteTableHelper *rhelper;
+    TrojanGoAPI *trojanGoAPI;
     TQProfile profile;
     bool running;
 
     void testAddressLatency(const QHostAddress &addr);
 
-    friend class EditDialog;
+    friend class SSEditDialog;
+    friend class SSREditDialog;
+    friend class TrojanEditDialog;
     friend class ConfigHelper;
     friend class StatusDialog;
     friend class ConnectionItem;
@@ -80,6 +93,7 @@ private:
 private slots:
     void onServerAddressLookedUp(const QHostInfo &host);
     void onLatencyAvailable(const int);
+    void onNewBytesTransmitted(const quint64 &, const quint64 &);
 
 };
 Q_DECLARE_METATYPE(Connection*)

@@ -5,12 +5,13 @@
 #include <QMessageBox>
 #include <QDir>
 #include <QCommandLineParser>
-#include <QHttpServer>
+#include "pacserver.h"
 #include <signal.h>
 #include "mainwindow.h"
 #include "confighelper.h"
 #include "resourcehelper.h"
 #include "logger.h"
+#include "midman.h"
 
 #include "LetsMove/PFMoveApplication.h"
 
@@ -42,6 +43,9 @@ void setupApplication(QApplication &a)
     a.setApplicationName("trojan-qt5");
     a.setApplicationDisplayName("Trojan-Qt5");
     a.setApplicationVersion(APP_VERSION);
+
+    // https://stackoverflow.com/questions/46143546/application-closes-when-its-hidden-and-i-close-a-modal-dialog
+    a.setQuitOnLastWindowClosed(false); // prevent application quit when mainwindow is hidden and user closed dialog
 
 #ifdef Q_OS_WIN
     if (QLocale::system().country() == QLocale::China) {
@@ -109,22 +113,26 @@ int main(int argc, char *argv[])
     qRegisterMetaTypeStreamOperators<TQProfile>("TQProfile");
     qRegisterMetaTypeStreamOperators<TQSubscribe>("TQSubscribe");
 
+    QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+
     QApplication a(argc, argv);
     setupApplication(a);
 
     QCommandLineParser parser;
     parser.addHelpOption();
     parser.addVersionOption();
+    QCommandLineOption noInstanceCheckOption("b",
+                                        "bypass one instance check.");
     QCommandLineOption configFileOption("c",
                                         "specify configuration file.",
                                         "config.ini");
+    parser.addOption(noInstanceCheckOption);
     parser.addOption(configFileOption);
     parser.process(a);
 
     QString configFile = parser.value(configFileOption);
     if (configFile.isEmpty()) {
 #ifdef Q_OS_WIN
-        ResourceHelper::initPrivoxy();
         configFile = a.applicationDirPath() + "/config.ini";
 #else
         QDir configDir = QDir::homePath() + "/.config/trojan-qt5";
@@ -137,6 +145,9 @@ int main(int argc, char *argv[])
 
     ConfigHelper conf(configFile);
 
+    // setup the theme here
+    a.setStyle(conf.getTheme());
+
     MainWindow w(&conf);
     mainWindow = &w;
 
@@ -144,24 +155,14 @@ int main(int argc, char *argv[])
     setupDockClickHandler();
 #endif
 
-    if (conf.isOnlyOneInstance() && w.isInstanceRunning()) {
-        return -1;
-    }
+    bool bypassOneInstance = parser.isSet(noInstanceCheckOption);
+    if (!bypassOneInstance)
+        if (conf.isOnlyOneInstance() && w.isInstanceRunning())
+            return -1;
 
-    //we have to start QHttpServer in main otherwise it will not listen
-    QHttpServer server;
-#if defined(Q_OS_WIN)
-    server.route("/<arg>", [](const QUrl &url) {
-        QDir dir = QApplication::applicationDirPath() + "/pac";
-        return QHttpServerResponse::fromFile(dir.path() + QString("/%1").arg(url.path()));
-    });
-#else
-    server.route("/<arg>", [](const QUrl &url) {
-        QDir configDir = QDir::homePath() + "/.config/trojan-qt5/pac";
-        return QHttpServerResponse::fromFile(configDir.path() + QString("/%1").arg(url.path()));
-    });
-#endif
-    server.listen(QHostAddress(conf.getPACAddress()), conf.getPACPort());
+    //let's start PAC Server
+    PACServer pacServer;
+    pacServer.listen();
 
     //start all servers which were configured to start at startup
     w.startAutoStartConnections();

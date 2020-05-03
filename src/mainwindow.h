@@ -72,7 +72,7 @@ private:
     void initSparkle();
     void initSingleInstance();
 
-    void newProfile(Connection *);
+    void newProfile(QString type, Connection *newCon);
     void editRow(int row);
     void blockChildrenSignals(bool);
     void checkCurrentIndex();
@@ -84,11 +84,12 @@ private slots:
     void onToggleConnection(bool);
     void onAddURIFromSubscribe(QString);
     void onImportGuiJson();
+    void onImportConfigYaml();
     void onExportGuiJson();
     void onExportShadowrocketJson();
     void onExportTrojanSubscribe();
     void onSaveManually();
-    void onAddManually();
+    void onAddManually(QString type);
     void onAddScreenQRCode();
     void onAddScreenQRCodeCapturer();
     void onAddQRCodeFile();
@@ -107,7 +108,6 @@ private slots:
     void onMoveUp();
     void onMoveDown();
     void onGeneralSettings();
-    void onAdvanceSettings();
     void onUserRuleSettings();
     void checkCurrentIndex(const QModelIndex &index);
     void onAbout();
@@ -119,6 +119,8 @@ private slots:
     void onFilterTextChanged(const QString &text);
     void onQRCodeCapturerResultFound(const QString &uris);
     void onCheckUpdate();
+    void onStatusAvailable(const quint64 &u, const quint64 &d);
+    QString bytesConvertor(const quint64 &);
     void onSingleInstanceConnect();
 
 protected slots:
