@@ -122,10 +122,12 @@ QString ConnectionItem::convertType(TQProfile profile)
         return QString("SSR / %1").arg(profile.obfs.toUpper());
     else if (profile.type == "trojan")
         return "TROJAN";
+    else if (profile.type == "vmess")
+        return QString("VMESS / %1").arg(profile.vmessSettings["network"].toString() == "ws" ? "WEBSOCKET" : profile.vmessSettings["network"].toString().toUpper());
     else if (profile.type == "snell")
         return QString("SNELL / %1").arg(profile.obfs.toUpper());
     else
-        return QString("UNKNOWN / ERROR");
+        return "UNKNOWN / ERROR";
 }
 
 QColor ConnectionItem::convertStatusToColor(const bool isRunning)
@@ -199,6 +201,15 @@ QString ConnectionItem::convertBytesToHumanReadable(quint64 quot)
 void ConnectionItem::testLatency()
 {
     con->latencyTest();
+}
+
+void ConnectionItem::clearTraffic()
+{
+    TQProfile p;
+    p = con->getProfile();
+    p.currentUsage = 0;
+    p.totalUsage = 0;
+    con->setProfile(p);
 }
 
 Connection* ConnectionItem::getConnection()

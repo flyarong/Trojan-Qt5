@@ -1,7 +1,10 @@
 #include "tqprofile.h"
 #include "utils.h"
+#include "confighelper.h"
 
-#include <QDebug>
+#include <QJsonDocument>
+#include <QUrlQuery>
+#include <QJsonArray>
 
 TQProfile::TQProfile()
 {
@@ -17,18 +20,13 @@ TQProfile::TQProfile()
     reusePort = false;
     tcpFastOpen = false;
     mux = false;
-    websocket = false;
-    websocketDoubleTLS = false;
-    sni = "";
-    websocketPath = "";
-    websocketHostname = "";
-    websocketObfsPassword = "";
+    muxConcurrency = 8;
     latency = LATENCY_UNKNOWN;
     currentUsage = 0;
     totalUsage = 0;
     QDate currentDate = QDate::currentDate();
     nextResetDate = QDate(currentDate.year(), currentDate.month() + 1, 1);
-    // ss/ssr only
+    // ss/ssr/snell only
     method = QString("aes-256-cfb");
     protocol = QString("origin");
     protocolParam = QString("");
@@ -36,19 +34,41 @@ TQProfile::TQProfile()
     obfsParam = QString("");
     plugin = QString("");
     pluginParam = QString("");
+    // vmess only
+    uuid = QString("");
+    alterID = 32;
+    security = QString("auto");
+    vmessSettings = ConfigHelper::generateVmessSettings();
+    // trojan only
+    sni = "";
+    websocket = false;
+    websocketDoubleTLS = false;
+    websocketPath = "";
+    websocketHostname = "";
+    websocketObfsPassword = "";
 }
 
 TQProfile::TQProfile(const QString &uri)
 {
-    if (uri.startsWith("ssr://"))
+    if (uri.startsWith("ss://"))
+        try {
+            *this = TQProfile::fromSSUri(uri.toStdString());
+        } catch (...) {
+            *this = TQProfile::fromOldSSUri(uri.toStdString());
+        }
+    else if (uri.startsWith("ssr://"))
         *this = TQProfile::fromSSRUri(uri.toStdString());
+    else if (uri.startsWith("vmess://"))
+        *this = TQProfile::fromVmessUri(uri.toStdString());
     else if (uri.startsWith("trojan://"))
         *this = TQProfile::fromTrojanUri(uri.toStdString());
 }
 
 bool TQProfile::equals(const TQProfile &profile) const
 {
-    return (serverPort == profile.serverPort
+    return (type == profile.type
+         && serverPort == profile.serverPort
+         && group == profile.group
          && name == profile.name
          && verifyCertificate == profile.verifyCertificate
          && verifyHostname == profile.verifyHostname
@@ -68,11 +88,56 @@ TQProfile TQProfile::fromSSUri(const std::string& ssUri) const
     std::string prefix = "ss://";
 
     if (ssUri.length() < 5) {
-        throw std::invalid_argument("SSR URI is too short");
+        throw std::invalid_argument("SS URI is too short");
     }
 
     if (!QString::fromStdString(ssUri).startsWith("ss://")) {
-        throw std::invalid_argument("Invalid Trojan URI");
+        throw std::invalid_argument("Invalid SS URI");
+    }
+
+    TQProfile result;
+
+    result.type = "ss";
+
+    //remove the prefix "ss://" from uri
+    std::string uri(ssUri.data() + 5, ssUri.length() - 5);
+    size_t hashPos = uri.find_last_of('#');
+    if (hashPos != std::string::npos) {
+        // Get the name/remark
+        result.name = QUrl::fromPercentEncoding(QString::fromStdString(uri.substr(hashPos + 1)).toUtf8().data());
+        uri.erase(hashPos);
+    }
+
+    size_t atPos = uri.find_first_of('@');
+    if (atPos != std::string::npos) {
+        QString userInfo = QByteArray::fromBase64(QString::fromStdString(uri.substr(0, atPos)).toUtf8().data());
+        result.method = userInfo.split(":")[0];
+        result.password = userInfo.split(":")[1];
+        uri.erase(0, atPos + 1);
+        size_t colonPos = uri.find_last_of(':');
+        if (colonPos == std::string::npos) {
+            throw std::invalid_argument("Can't find the colon separator between hostname and port");
+        }
+        result.serverAddress = QString::fromStdString(uri.substr(0, colonPos));
+        result.serverPort = std::stoi(uri.substr(colonPos + 1));
+        uri.erase(0, colonPos + 4);
+    } else {
+        throw std::invalid_argument("Can't find the at separator between userInfo and hostname");
+    }
+
+    return  result;
+}
+
+TQProfile TQProfile::fromOldSSUri(const std::string& ssUri) const
+{
+    std::string prefix = "ss://";
+
+    if (ssUri.length() < 5) {
+        throw std::invalid_argument("SS URI is too short");
+    }
+
+    if (!QString::fromStdString(ssUri).startsWith("ss://")) {
+        throw std::invalid_argument("Invalid SS URI");
     }
 
     TQProfile result;
@@ -82,9 +147,19 @@ TQProfile TQProfile::fromSSUri(const std::string& ssUri) const
     //remove the prefix "ss://" from uri
     std::string uri(ssUri.data() + 5, ssUri.length() - 5);
 
+    size_t hashPos = uri.find_last_of('#');
+    if (hashPos != std::string::npos) {
+        // Get the name/remark
+        result.name = QUrl::fromPercentEncoding(QString::fromStdString(uri.substr(hashPos + 1)).toUtf8().data());
+        uri.erase(hashPos);
+    }
+
+    //decode base64
+    uri = Utils::Base64UrlDecode(QString::fromStdString(uri)).toStdString();
+
     size_t atPos = uri.find_first_of('@');
     if (atPos != std::string::npos) {
-        QString userInfo = QByteArray::fromBase64(QString::fromStdString(uri.substr(0, atPos)).toUtf8().data());
+        QString userInfo = QString::fromStdString(uri.substr(0, atPos));
         result.method = userInfo.split(":")[0];
         result.password = userInfo.split(":")[1];
         uri.erase(0, atPos + 1);
@@ -111,7 +186,7 @@ TQProfile TQProfile::fromSSRUri(const std::string& ssrUri) const
     }
 
     if (!QString::fromStdString(ssrUri).startsWith("ssr://")) {
-        throw std::invalid_argument("Invalid Trojan URI");
+        throw std::invalid_argument("Invalid SSR URI");
     }
 
     TQProfile result;
@@ -137,23 +212,85 @@ TQProfile TQProfile::fromSSRUri(const std::string& ssrUri) const
 
     result.password = Utils::Base64UrlDecode(decoded2[0]);
 
-    QStringList decoded3 = decoded2[1].split("&");
+    QUrl url(decodedUri);
+    QUrlQuery query(url.query());
 
-    for (QString data: decoded3) {
-        if (data.startsWith("obfs")) {
-            data = data.replace("obfsparam=", "");
-            result.obfsParam = Utils::Base64UrlDecode(data);
-        } else if (data.startsWith("proto")) {
-            data = data.replace("protoparam=", "");
-            result.protocolParam = Utils::Base64UrlDecode(data);
-        } else if (data.startsWith("remarks")) {
-            data = data.replace("remarks=", "");
-            result.name = Utils::Base64UrlDecode(data);
-        } else if (data.startsWith("group")) {
-            data = data.replace("group=", "");
-            result.group = Utils::Base64UrlDecode(data);
-        }
+    result.protocolParam = Utils::Base64UrlDecode(query.queryItemValue("protoparam"));
+    result.obfsParam = Utils::Base64UrlDecode(query.queryItemValue("obfsparam"));
+    result.name = Utils::Base64UrlDecode(query.queryItemValue("remarks"));
+    result.group = Utils::Base64UrlDecode(query.queryItemValue("group"));
+
+    return result;
+}
+
+
+TQProfile TQProfile::fromVmessUri(const std::string& vmessUri) const
+{
+    std::string prefix = "vmess://";
+
+    if (vmessUri.length() < 8) {
+        throw std::invalid_argument("Vmess URI is too short");
     }
+
+    //prevent line separator casuing wrong password.
+    if (!QString::fromStdString(vmessUri).startsWith("vmess://")) {
+         throw std::invalid_argument("Invalid Vmess URI");
+    }
+
+    TQProfile result;
+
+    result.type = "vmess";
+
+    //remove the prefix "vmess://" from uri
+    std::string uri(vmessUri.data() + 8, vmessUri.length() - 8);
+    QJsonDocument doc = QJsonDocument::fromJson(Utils::Base64UrlDecode(QString::fromStdString(uri)).toUtf8().data());
+    QJsonObject vmess = doc.object();
+
+    result.name = vmess["ps"].toString();
+    result.serverAddress = vmess["add"].toString();
+    if (result.serverAddress.isEmpty())
+        result.serverAddress = vmess["addr"].toString();
+    result.serverPort = vmess["port"].toVariant().toInt();
+    result.uuid = vmess["id"].toString();
+    result.alterID = vmess["aid"].toString().toInt();
+
+    QJsonObject vmessSettings = result.vmessSettings;
+    vmessSettings["network"] = vmess["net"].toString();
+
+    if (vmessSettings["network"].toString()  == "tcp") {
+        QJsonObject tcp = vmessSettings["tcp"].toObject();
+        QJsonObject tcpHeader = tcp["header"].toObject();
+        tcpHeader["type"] = vmess["type"].toString();
+        tcp["header"] = tcpHeader;
+        vmessSettings["tcp"] = tcp;
+    } else if (vmessSettings["network"].toString() == "http") {
+        QJsonObject http = vmessSettings["http"].toObject();
+        QJsonArray array;
+        foreach(const QString &host, vmess["host"].toString().split(",")) {
+            array.push_back(host);
+        }
+        http["host"] = array;
+        http["path"] = vmess["path"].toString();
+        vmessSettings["http"] = http;
+    } else if (vmessSettings["network"].toString() == "ws") {
+        QJsonObject ws = vmessSettings["ws"].toObject();
+        QJsonObject wsHeader = ws["host"].toObject()["header"].toObject();
+        wsHeader["Host"] = vmess["host"].toString();
+        ws["header"] = wsHeader;
+        ws["path"] = vmess["path"].toString();
+        vmessSettings["ws"] = ws;
+    } else if (vmessSettings["network"].toString() == "quic") {
+        QJsonObject quic = vmessSettings["quic"].toObject();
+        quic["security"] = vmess["host"];
+        quic["key"] = vmess["path"];
+        vmessSettings["quic"] = quic;
+    }
+
+    QJsonObject tls = vmess["tls"].toObject();
+    tls["enable"] = vmess["tls"] == "tls" ? true : false;
+    vmessSettings["tls"] = tls;
+
+    result.vmessSettings = vmessSettings;
 
     return result;
 }
@@ -199,40 +336,16 @@ TQProfile TQProfile::fromTrojanUri(const std::string& trojanUri) const
         throw std::invalid_argument("Can't find the at separator between password and hostname");
     }
 
-    size_t questionMarkPos = uri.find_first_of('?');
-    if (questionMarkPos != std::string::npos) {
-        result.verifyCertificate = !std::stoi(uri.substr(questionMarkPos + 15));
-        uri.erase(0, questionMarkPos + 16);
-    }
-
-    QStringList decoded = QString::fromStdString(uri).split("&");
-
-    for (QString data : decoded) {
-        if (data.startsWith("tfo")) {
-            data = data.replace("tfo=", "");
-            result.tcpFastOpen = data.toInt();
-        } else if (data.startsWith("sni")) {
-            data = data.replace("sni=", "");
-            result.sni = data;
-        } else if (data.startsWith("group")) {
-            data = data.replace("group=", "");
-            result.group = data;
-        }
-    }
-
-    /* Not used any more
-    size_t ampersandPos = uri.find_last_of('&');
-    if (ampersandPos != std::string::npos) {
-        result.sni = QString::fromStdString(uri.substr(ampersandPos + 5));
-        uri.erase(ampersandPos, ampersandPos + 6);
-    }
-
-    size_t ampersandPos2 = uri.find_first_of('&');
-    if (ampersandPos2 != std::string::npos) {
-        result.tcpFastOpen = std::stoi(uri.substr(ampersandPos2 + 5));
-        uri.erase(ampersandPos2, ampersandPos2 + 6);
-    }
-    */
+    QUrl url(QString::fromStdString(trojanUri));
+    QUrlQuery query(url.query());
+    result.tcpFastOpen = query.queryItemValue("tfo").toInt();
+    result.verifyCertificate = !query.queryItemValue("allowInsecure").toInt();
+    result.sni = query.queryItemValue("sni");
+    if (result.sni.isEmpty())
+        result.sni = query.queryItemValue("peer");
+    result.mux = query.queryItemValue("mux").toInt();
+    result.websocket = query.queryItemValue("ws").toInt();
+    result.group = query.queryItemValue("group");
 
     return result;
 }
@@ -244,8 +357,8 @@ TQProfile TQProfile::fromTrojanUri(const std::string& trojanUri) const
  */
 QString TQProfile::toSSUri() const
 {
-    QString userInfoBase64 = Utils::Base64UrlEncode(password + ":" + method);
-    return "ss://" + userInfoBase64 + "@" + serverAddress + ":" + QString::number(serverPort);
+    QString userInfoBase64 = Utils::Base64UrlEncode(method + ":" + password);
+    return "ss://" + userInfoBase64 + "@" + serverAddress + ":" + QString::number(serverPort) + "#" + name.toUtf8().toPercentEncoding();
 }
 
 /**
@@ -265,12 +378,53 @@ QString TQProfile::toSSRUri() const
 }
 
 /**
+  * @brief TQProfile::toVmessUri
+  * @return QString uri for vmess server
+ */
+QString TQProfile::toVmessUri() const
+{
+    QJsonObject vmessObject;
+    vmessObject["v"] = "2";
+    vmessObject["ps"] = name;
+    vmessObject["add"] = serverAddress;
+    vmessObject["port"] = QString::number(serverPort);
+    vmessObject["id"] = uuid;
+    vmessObject["aid"] = alterID;
+    vmessObject["net"] = vmessSettings["network"].toString();
+    if (vmessSettings["network"].toString() == "tcp") {
+        vmessObject["type"] = vmessSettings["tcp"].toObject()["header"].toObject()["type"].toString();
+    } if (vmessSettings["network"].toString() == "http") {
+        vmessObject["host"] = vmessSettings["http"].toObject()["host"].toString().replace("\r\n", "");
+        vmessObject["path"] = vmessSettings["http"].toObject()["path"].toString();
+    } else if (vmessSettings["network"].toString() == "kcp")
+        vmessObject["type"] = vmessSettings["kcp"].toObject()["header"].toObject()["type"].toString();
+    else if (vmessSettings["network"].toString() == "ws") {
+        foreach (const QString& key, vmessSettings["ws"].toObject()["header"].toObject().keys())
+        {
+            QJsonValue value = vmessSettings["ws"].toObject()["header"].toObject().value(key);
+            if (key == "Host")
+                vmessObject["host"] = value.toString();
+        }
+        vmessObject["path"] = vmessSettings["ws"].toObject()["path"].toString();
+    }
+    else if (vmessSettings["network"].toString() == "quic") {
+        vmessObject["type"] = vmessSettings["quic"].toObject()["header"].toObject()["type"].toString();
+        vmessObject["host"] = vmessSettings["quic"].toObject()["security"].toString();
+        vmessObject["path"] = vmessSettings["quic"].toObject()["key"].toString();
+    }
+    vmessObject["tls"] = vmessObject["tls"].toObject()["enable"].toBool() ? "tls" : "none";
+    QJsonDocument uri(vmessObject);
+    return "vmess://" + Utils::Base64UrlEncode(uri.toJson());
+}
+
+
+/**
  * @brief TQProfile::toTrojanUri
  * @return QString uri of trojan server
  */
 QString TQProfile::toTrojanUri() const
 {
-    QString trojanUri = password.toUtf8().toPercentEncoding() + "@" + serverAddress + ":" + QString::number(serverPort) + "?allowinsecure=" + QString::number(int(!verifyCertificate)) + "&tfo=" + QString::number(tcpFastOpen) + "&sni=" + sni + "&group=" + group.toUtf8().toPercentEncoding();
+    QString trojanUri = password.toUtf8().toPercentEncoding() + "@" + serverAddress + ":" + QString::number(serverPort) + "?allowinsecure=" + QString::number(int(!verifyCertificate)) + "&tfo=" + QString::number(tcpFastOpen) + "&sni=" + sni + "&mux=" + QString::number(mux) + "&ws=" + QString::number(websocket) + "&group=" + group.toUtf8().toPercentEncoding();
     QByteArray uri = QByteArray(trojanUri.toUtf8());
     uri.prepend("trojan://");
     uri.append("#");
@@ -278,14 +432,29 @@ QString TQProfile::toTrojanUri() const
     return QString(uri);
 }
 
+/**
+ * @brief TQProfile::toSnellUri
+ * @return QString uri of snell server
+ */
+QString TQProfile::toSnellUri() const
+{
+    QString userInfoBase64 = Utils::Base64UrlEncode(method + ":" + password);
+    QString snellUri = userInfoBase64 + "@" + serverAddress + ":" + serverPort + "?plugin=obfs-local;obfs=" + obfs + ";obfs-host=" + obfsParam + ";obfs-uri=/";
+    return "snell://" + snellUri;
+}
+
+// https://stackoverflow.com/questions/61924590/no-match-for-operator-operand-types-are-qdatastream-and-qjsonobject/61926499#61926499
 QDataStream& operator << (QDataStream &out, const TQProfile &p)
 {
-    out << p.type << p.autoStart << p.serverPort << p.name << p.serverAddress << p.verifyCertificate << p.verifyHostname << p.password << p.sni << p.reuseSession << p.sessionTicket << p.reusePort << p.tcpFastOpen << p.mux << p.websocket << p.websocketDoubleTLS << p.websocketPath << p.websocketHostname << p.websocketObfsPassword << p.method << p.protocol << p.protocolParam << p.obfs << p.obfsParam << p.plugin << p.pluginParam << p.latency << p.currentUsage << p.totalUsage << p.lastTime << p.nextResetDate;
+    QJsonDocument vmessSettingsDoc(p.vmessSettings);
+    out << p.type << p.autoStart << p.serverPort << p.name << p.serverAddress << p.verifyCertificate << p.verifyHostname << p.password << p.sni << p.reuseSession << p.sessionTicket << p.reusePort << p.tcpFastOpen << p.mux << p.muxConcurrency << p.websocket << p.websocketDoubleTLS << p.websocketPath << p.websocketHostname << p.websocketObfsPassword << p.method << p.protocol << p.protocolParam << p.obfs << p.obfsParam << p.plugin << p.pluginParam << p.uuid << p.alterID << p.security << vmessSettingsDoc.toJson(QJsonDocument::Compact) << p.latency << p.currentUsage << p.totalUsage << p.lastTime << p.nextResetDate;
     return out;
 }
 
 QDataStream& operator >> (QDataStream &in, TQProfile &p)
 {
-    in >> p.type >> p.autoStart >> p.serverPort >> p.name >> p.serverAddress >> p.verifyCertificate >> p.verifyHostname >> p.password >> p.sni >> p.reuseSession >> p.sessionTicket >> p.reusePort >> p.tcpFastOpen >> p.mux >> p.websocket >> p.websocketDoubleTLS >> p.websocketPath >> p.websocketHostname >> p.websocketObfsPassword >> p.method >> p.protocol >> p.protocolParam >> p.obfs >> p.obfsParam >> p.plugin >> p.pluginParam >> p.latency >> p.currentUsage >> p.totalUsage >> p.lastTime >> p.nextResetDate;
+    QByteArray vmessSettingsData;
+    in >> p.type >> p.autoStart >> p.serverPort >> p.name >> p.serverAddress >> p.verifyCertificate >> p.verifyHostname >> p.password >> p.sni >> p.reuseSession >> p.sessionTicket >> p.reusePort >> p.tcpFastOpen >> p.mux >> p.muxConcurrency >> p.websocket >> p.websocketDoubleTLS >> p.websocketPath >> p.websocketHostname >> p.websocketObfsPassword >> p.method >> p.protocol >> p.protocolParam >> p.obfs >> p.obfsParam >> p.plugin >> p.pluginParam >> p.uuid >> p.alterID >> p.security >> vmessSettingsData >> p.latency >> p.currentUsage >> p.totalUsage >> p.lastTime >> p.nextResetDate;
+    p.vmessSettings = QJsonDocument::fromJson(vmessSettingsData).object();
     return in;
 }

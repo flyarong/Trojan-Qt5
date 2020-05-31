@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="https://github.com/TheWanderingCoel/Trojan-Qt5/blob/master/resources/icons/trojan-qt5.png?raw=true" alt="Trojan-Qt5" width="200">
+  <img src="https://github.com/Trojan-Qt5/Trojan-Qt5/blob/master/resources/icons/trojan-qt5_new.png?raw=true" alt="Trojan-Qt5" width="200">
   <br>
   Trojan-Qt5
   <br>
@@ -7,36 +7,38 @@
 
 A cross-platform Trojan GUI client
 
-[![Build status](https://travis-ci.com/TheWanderingCoel/Trojan-Qt5.svg?branch=master)](https://travis-ci.com/TheWanderingCoel/Trojan-Qt5)
-[![Build status](https://ci.appveyor.com/api/projects/status/shjhg9mlvc3c74ek?svg=true)](https://ci.appveyor.com/project/CoelWu/trojan-qt5)
-[![HitCount](http://hits.dwyl.io/TheWanderingCoel/Trojan-Qt5.svg)](http://hits.dwyl.io/TheWanderingCoel/Trojan-Qt5)
-![GitHub Releases](https://img.shields.io/github/downloads/TheWanderingCoel/Trojan-Qt5/latest/total?style=flat-square&logo=github)
-![GitHub All Releases](https://img.shields.io/github/downloads/TheWanderingCoel/Trojan-Qt5/total?label=downloads-total&logo=github&style=flat-square)
+[![Build status](https://travis-ci.com/Trojan-Qt5/Trojan-Qt5.svg?branch=master)](https://travis-ci.com/Trojan-Qt5/Trojan-Qt5)
+[![Build status](https://ci.appveyor.com/api/projects/status/mbrhwcmufm0q9lba/branch/master?svg=true)](https://ci.appveyor.com/project/CoelWu/trojan-qt5)
+[![HitCount](http://hits.dwyl.io/Trojan-Qt5/Trojan-Qt5.svg)](http://hits.dwyl.io/Trojan-Qt5/Trojan-Qt5)
+![GitHub Releases](https://img.shields.io/github/downloads/Trojan-Qt5/Trojan-Qt5/latest/total?style=flat-square&logo=github)
+![GitHub All Releases](https://img.shields.io/github/downloads/Trojan-Qt5/Trojan-Qt5/total?label=downloads-total&logo=github&style=flat-square)
 [![License](https://img.shields.io/badge/license-GPL%20V3-blue.svg?longCache=true)](https://www.gnu.org/licenses/gpl-3.0.en.html)
 
 ## Feature
 - Full PAC Control
 - Cross-platform
 - User Rule Support
-- Http Privoxy Support(privoxy)
+- Http Privoxy Support
 - Subscription Support
 - Import Servers from many methods
 - Mutiple servers Support
-- SSR,Trojan Support
+- SS/SSR/Vmess/Trojan(go) Support
 - ....and more
 
 ## Install
 
-You can download from [release](https://github.com/TheWanderingCoel/Trojan-Qt5/releases) page
+- You can download from [release](https://github.com/Trojan-Qt5/Trojan-Qt5/releases) page
+
+- Or using homebrew: ``brew cask install trojan-qt5``
 
 ## Compiling
 
-[English Wiki](https://github.com/TheWanderingCoel/Trojan-Qt5/wiki/Compile)  
-[Chinese Wiki](https://github.com/TheWanderingCoel/Trojan-Qt5/wiki/Compile_CN)
+[English Wiki](https://github.com/Trojan-Qt5/Trojan-Qt5/wiki/Compile)  
+[Chinese Wiki](https://github.com/Trojan-Qt5/Trojan-Qt5/wiki/Compile_CN)
 
 ## Frequent Ask Question (FAQ)
 
-[FAQ](https://github.com/TheWanderingCoel/Trojan-Qt5/wiki/FAQ)
+[FAQ](https://github.com/Trojan-Qt5/Trojan-Qt5/wiki/FAQ)
 
 ## Warning
 Note: Trojan-Qt5 can ONLY be used for learning related technologies such as Qt/C++/Linux/CI/automation and use within the scope permitted by law. Any individual or group MAY NOT use Trojan-Qt5 for any violation of relevant laws and regulations.
@@ -67,9 +69,8 @@ This project is based on:
 - [qbittorrent](https://github.com/qbittorrent/qBittorrent) GPL-2.0
 
 ## UI Design
-- [@eejworks]()
 - [@erdongchan]()
-- [westworldss]()
+- [westworldss](https://westworldss.com/)
 - [MieLink](https://www.mielink.cc)
 - [shadowsocksRR-windows](https://github.com/shadowsocksrr/shadowsocksr-csharp)
 - [Qv2ray](https://github.com/qv2ray/qv2ray)
@@ -77,5 +78,11 @@ This project is based on:
 Trojan-Qt5's icon is owned by [mielink] and [erdongchan], any unanthorized usage will be blamed.
 
 ## Sponsors
+
+### 1.MieLink
 ![MieLink](https://i.imgur.com/XmvuOOi.png)
 Use this [link](http://rakuten-co-jp.club/register?aff=COELWU) to get 10RMB initial balance!
+
+### 2.WestWorldSS
+![WestWordSS](https://i.imgur.com/IyzIFrFg.png)  
+Use this [link](https://xbsj5673.xyz) to register now!

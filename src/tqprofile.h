@@ -23,6 +23,7 @@
 #include <QDate>
 #include <QDateTime>
 #include <QUrl>
+#include <QJsonObject>
 
 struct TQProfile
 {
@@ -30,11 +31,15 @@ struct TQProfile
     TQProfile(const QString &uri);
 
     TQProfile fromSSUri(const std::string& ssUri) const;
+    TQProfile fromOldSSUri(const std::string& ssUri) const;
     TQProfile fromSSRUri(const std::string& trojanUri) const;
+    TQProfile fromVmessUri(const std::string& vmessUri) const;
     TQProfile fromTrojanUri(const std::string& trojanUri) const;
     QString toSSUri() const;
     QString toSSRUri() const;
+    QString toVmessUri() const;
     QString toTrojanUri() const;
+    QString toSnellUri() const;
 
     bool equals(const TQProfile &profile) const;
 
@@ -45,25 +50,14 @@ struct TQProfile
     QString name;
     QString serverAddress;
     QString password;
-    QString sni;
-    QString websocketPath;
-    QString websocketHostname;
-    QString websocketObfsPassword;
-    bool verifyCertificate;
-    bool verifyHostname;
-    bool reuseSession;
-    bool sessionTicket;
-    bool reusePort;
-    bool tcpFastOpen;
-    bool mux;
-    bool websocket;
-    bool websocketDoubleTLS;
     int latency;
     quint64 currentUsage;
     quint64 totalUsage;
-    QDateTime lastTime;//last time this connection is used
-    QDate nextResetDate;//next scheduled date to reset data usage
-    // ss/ssr only
+    QDateTime lastTime; //last time this connection is used
+    QDate nextResetDate; //next scheduled date to reset data usage
+    bool mux;
+    int muxConcurrency;
+    // ss/ssr/snell only
     QString method;
     QString protocol;
     QString protocolParam;
@@ -71,6 +65,24 @@ struct TQProfile
     QString obfsParam;
     QString plugin;
     QString pluginParam;
+    // trojan only
+    bool verifyCertificate;
+    bool verifyHostname;
+    bool reuseSession;
+    bool sessionTicket;
+    bool reusePort;
+    bool tcpFastOpen;
+    bool websocket;
+    bool websocketDoubleTLS;
+    QString sni;
+    QString websocketPath;
+    QString websocketHostname;
+    QString websocketObfsPassword;
+    // vmess only
+    QString uuid;
+    int alterID;
+    QString security;
+    QJsonObject vmessSettings;
 
     static const int LATENCY_TIMEOUT = -1;
     static const int LATENCY_ERROR = -2;

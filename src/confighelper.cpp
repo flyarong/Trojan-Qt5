@@ -10,6 +10,7 @@
 
 #include "logger.h"
 #include "yaml-cpp/yaml.h"
+#include "utils.h"
 
 using namespace std;
 
@@ -17,6 +18,7 @@ ConfigHelper::ConfigHelper(const QString &configuration, QObject *parent) :
     QObject(parent),
     configFile(configuration)
 {
+    Utils::setPermisison(configFile);
     settings = new QSettings(configFile, QSettings::IniFormat, this);
     readGeneralSettings();
 }
@@ -37,49 +39,19 @@ void ConfigHelper::save(const ConnectionTableModel &model)
     }
     settings->endArray();
 
-    settings->setValue("Theme", QVariant(theme));
-    settings->setValue("LogLevel", QVariant(logLevel));
-    settings->setValue("EnableHttpMode", QVariant(enableHttpMode));
-    settings->setValue("Socks5LocalPort", QVariant(socks5Port));
-    settings->setValue("HttpLocalPort", QVariant(httpPort));
-    settings->setValue("PACLocalPort", QVariant(pacPort));
-    settings->setValue("HaproxyStatusPort", QVariant(haproxyStatusPort));
-    settings->setValue("HaproxyPort", QVariant(haproxyPort));
-    settings->setValue("ToolbarStyle", QVariant(toolbarStyle));
     settings->setValue("AutoUpdateSubscribes", QVariant(autoUpdateSubscribes));
     settings->setValue("TrojanOn", QVariant(trojanOn));
     settings->setValue("SystemProxyMode", QVariant(systemProxyMode));
-    settings->setValue("EnableIPV6Support", QVariant(enableIpv6Support));
-    settings->setValue("ShareOverLan", QVariant(shareOverLan));
     settings->setValue("ServerLoadBalance", QVariant(serverLoadBalance));
-    settings->setValue("HideWindowOnStartup", QVariant(hideWindowOnStartup));
-    settings->setValue("StartAtLogin", QVariant(startAtLogin));
-    settings->setValue("OnlyOneInstance", QVariant(onlyOneInstace));
-    settings->setValue("CheckPortAvailability", QVariant(checkPortAvailability));
-    settings->setValue("EnableNotification", QVariant(enableNotification));
-    settings->setValue("HideDockIcon", QVariant(hideDockIcon));
+    settings->setValue("ConfigVersion", QVariant(2.6));
     settings->setValue("ShowToolbar", QVariant(showToolbar));
     settings->setValue("ShowFilterBar", QVariant(showFilterBar));
-    settings->setValue("NativeMenuBar", QVariant(nativeMenuBar));
-    settings->setValue("ConfigVersion", QVariant(2.6));
-    settings->setValue("ForwardProxy", QVariant(enableForwardProxy));
-    settings->setValue("ForwardProxyType", QVariant(forwardProxyType));
-    settings->setValue("ForwardProxyAddress", QVariant(forwardProxyAddress));
-    settings->setValue("ForwardProxyPort", QVariant(forwardProxyPort));
-    settings->setValue("ForwardProxyAuthentication", QVariant(enableForwardProxyAuthentication));
-    settings->setValue("ForwardProxyUsername", QVariant(forwardProxyUsername));
-    settings->setValue("ForwardProxyPassword", QVariant(forwardProxyPassword));
-    settings->setValue("GFWListUrl", QVariant(gfwlistUrl));
-    settings->setValue("UpdateUserAgent", QVariant(updateUserAgent));
-    settings->setValue("FilterKeyword", QVariant(filterKeyword));
-    settings->setValue("MaximumSubscribe", QVariant(maximumSubscribe));
-    settings->setValue("Fingerprint", QVariant(fingerprint));
-    settings->setValue("EnableTrojanAPI", QVariant(enableTrojanAPI));
-    settings->setValue("EnableTrojanRouter", QVariant(enableTrojanRouter));
-    settings->setValue("TrojanAPIPort", QVariant(trojanAPIPort));
-    settings->setValue("TrojanCertPath", QVariant(trojanCertPath));
-    settings->setValue("TrojanCipher", QVariant(trojanCipher));
-    settings->setValue("TrojanCipherTLS13", QVariant(trojanCipherTLS13));
+    settings->setValue("GeneralSettings", QVariant(generalSettings));
+    settings->setValue("InboundSettings", QVariant(inboundSettings));
+    settings->setValue("OutboundSettings", QVariant(outboundSettings));
+    settings->setValue("RouterSettings", QVariant(routerSettings));
+    settings->setValue("SubscribeSettings", QVariant(subscribeSettings));
+    settings->setValue("TrojanSettings", QVariant(trojanSettings));
 }
 
 void ConfigHelper::saveSubscribes(QList<TQSubscribe> subscribes)
@@ -100,12 +72,12 @@ void ConfigHelper::importGuiConfigJson(ConnectionTableModel *model, const QStrin
     JSONFile.open(QIODevice::ReadOnly | QIODevice::Text);
     if (!JSONFile.isOpen()) {
         qCritical() << "Error: cannot open " << file;
-        Logger::error(QString("cannot open %1").arg(file));
+        Logger::error(QString("[Import] cannot open %1").arg(file));
         return;
     }
     if(!JSONFile.isReadable()) {
         qCritical() << "Error: cannot read " << file;
-        Logger::error(QString("cannot read %1").arg(file));
+        Logger::error(QString("[Import] cannot read %1").arg(file));
         return;
     }
 
@@ -117,33 +89,41 @@ void ConfigHelper::importGuiConfigJson(ConnectionTableModel *model, const QStrin
         Logger::error(pe.errorString());
     }
     if (JSONDoc.isEmpty()) {
-        qCritical() << "JSON Document" << file << "is empty!";
-        Logger::error(QString("JSON Document %1 is empty!").arg(file));
+        Logger::error(QString("[Import] JSON Document %1 is empty!").arg(file));
         return;
     }
     QJsonObject JSONObj = JSONDoc.object();
     QJsonArray CONFArray = JSONObj["configs"].toArray();
     if (CONFArray.isEmpty()) {
-        qWarning() << "configs in " << file << " is empty.";
-        Logger::error(QString("configs in %1 is empty!").arg(file));
+        Logger::error(QString("[Import] configs in %1 is empty!").arg(file));
         return;
     }
 
     for (QJsonArray::iterator it = CONFArray.begin(); it != CONFArray.end(); ++it) {
         QJsonObject json = (*it).toObject();
         TQProfile p;
+        p.type = json["type"].toString();
         p.name = json["remarks"].toString();
         p.serverPort = json["server_port"].toInt();
         p.serverAddress = json["server"].toString();
         p.verifyCertificate = json["verify_certificate"].toBool();
         p.verifyHostname = json["verify_hostname"].toBool();
+        p.method = json["method"].toString();
         p.password = json["password"].toString();
+        p.uuid = json["uuid"].toString();
+        p.protocol = json["protocol"].toString();
+        p.protocolParam = json["protocolParam"].toString();
+        p.obfs = json["obfs"].toString();
+        p.obfsParam = json["obfsParam"].toString();
+        p.plugin = json["plugin"].toString();
+        p.pluginParam = json["pluginParam"].toString();
         p.sni = json["sni"].toString();
         p.reuseSession = json["reuse_session"].toBool();
         p.sessionTicket = json["session_ticket"].toBool();
         p.reusePort = json["reuse_port"].toBool();
         p.tcpFastOpen = json["tcp_fast_open"].toBool();
         p.mux = json["mux"].toBool();
+        p.vmessSettings = json["vmessSettings"].toObject();
         Connection *con = new Connection(p, this);
         model->appendConnection(con);
     }
@@ -163,13 +143,22 @@ void ConfigHelper::exportGuiConfigJson(const ConnectionTableModel &model, const 
         json["server_port"] = QJsonValue(con->profile.serverPort);
         json["verify_certificate"] = QJsonValue(con->profile.verifyCertificate);
         json["verify_hostname"] = QJsonValue(con->profile.verifyHostname);
+        json["method"] = QJsonValue(con->profile.method);
         json["password"] = QJsonValue(con->profile.password);
+        json["uuid"] = QJsonValue(con->profile.uuid);
+        json["protocol"] = QJsonValue(con->profile.password);
+        json["protocolParam"] = QJsonValue(con->profile.password);
+        json["obfs"] = QJsonValue(con->profile.obfs);
+        json["obfsParam"] = QJsonValue(con->profile.obfsParam);
+        json["plugin"] = QJsonValue(con->profile.plugin);
+        json["pluginParam"] = QJsonValue(con->profile.pluginParam);
         json["sni"] = QJsonValue(con->profile.sni);
         json["reuse_session"] = QJsonValue(con->profile.reuseSession);
         json["session_ticket"] = QJsonValue(con->profile.sessionTicket);
         json["reuse_port"] = QJsonValue(con->profile.reusePort);
         json["tcp_fast_open"] = QJsonValue(con->profile.tcpFastOpen);
         json["mux"] = QJsonValue(con->profile.mux);
+        json["vmessSettings"] = QJsonValue(con->profile.vmessSettings);
         confArray.append(QJsonValue(json));
     }
 
@@ -182,12 +171,12 @@ void ConfigHelper::exportGuiConfigJson(const ConnectionTableModel &model, const 
     JSONFile.open(QIODevice::WriteOnly | QIODevice::Text);
     if (!JSONFile.isOpen()) {
         qCritical() << "Error: cannot open " << file;
-        Logger::error(QString("cannot open %1").arg(file));
+        Logger::error(QString("[Export] cannot open %1").arg(file));
         return;
     }
     if(!JSONFile.isWritable()) {
         qCritical() << "Error: cannot write into " << file;
-        Logger::error(QString("cannot write into %1").arg(file));
+        Logger::error(QString("[Export] cannot write into %1").arg(file));
         return;
     }
 
@@ -201,16 +190,14 @@ void ConfigHelper::importConfigYaml(ConnectionTableModel *model, const QString &
     const YAML::Node& proxies = config["Proxy"];
     for (std::size_t i = 0; i < proxies.size(); i++) {
         const YAML::Node& proxy = proxies[i];
-        if (QString::fromStdString(proxy["type"].as<string>()) == "trojan") {
-            TQProfile p;
-            p.name = QString::fromStdString(proxy["name"].as<string>());
-            p.serverAddress = QString::fromStdString(proxy["server"].as<string>());
-            p.serverPort = proxy["skip-cert-verify"].as<int>();
-            p.password = QString::fromStdString(proxy["password"].as<string>());
-            p.verifyCertificate = !proxy["skip-cert-verify"].as<bool>();
-            Connection *con = new Connection(p, this);
-            model->appendConnection(con);
-        }
+        TQProfile p;
+        p.name = QString::fromStdString(proxy["name"].as<string>());
+        p.serverAddress = QString::fromStdString(proxy["server"].as<string>());
+        p.serverPort = proxy["skip-cert-verify"].as<int>();
+        p.password = QString::fromStdString(proxy["password"].as<string>());
+        p.verifyCertificate = !proxy["skip-cert-verify"].as<bool>();
+        Connection *con = new Connection(p, this);
+        model->appendConnection(con);
     }
 }
 
@@ -219,13 +206,11 @@ void ConfigHelper::importShadowrocketJson(ConnectionTableModel *model, const QSt
     QFile JSONFile(file);
     JSONFile.open(QIODevice::ReadOnly | QIODevice::Text);
     if (!JSONFile.isOpen()) {
-        qCritical() << "Error: cannot open " << file;
-        Logger::error(QString("cannot open %1").arg(file));
+        Logger::error(QString("[Import] cannot open %1").arg(file));
         return;
     }
     if(!JSONFile.isReadable()) {
-        qCritical() << "Error: cannot read " << file;
-        Logger::error(QString("cannot read %1").arg(file));
+        Logger::error(QString("[Import] cannot read %1").arg(file));
         return;
     }
 
@@ -237,8 +222,7 @@ void ConfigHelper::importShadowrocketJson(ConnectionTableModel *model, const QSt
         Logger::error(pe.errorString());
     }
     if (JSONDoc.isEmpty()) {
-        qCritical() << "JSON Document" << file << "is empty!";
-        Logger::error(QString("JSON Document %1 is empty!").arg(file));
+        Logger::error(QString("[Import] JSON Document %1 is empty!").arg(file));
         return;
     }
 
@@ -267,11 +251,17 @@ void ConfigHelper::exportShadowrocketJson(const ConnectionTableModel &model, con
     for (int i = 0; i < size; ++i) {
         Connection *con = model.getItem(i)->getConnection();
         QJsonObject json;
-        json["type"] = "Trojan";
+        json["type"] = QJsonValue(Utils::toCamelCase(con->profile.type));
         json["title"] = QJsonValue(con->profile.name);
         json["host"] = QJsonValue(con->profile.serverAddress);
         json["port"] = QJsonValue(con->profile.serverPort);
+        json["method"] = QJsonValue(con->profile.method);
         json["password"] = QJsonValue(con->profile.password);
+        json["uuid"] = QJsonValue(con->profile.uuid);
+        json["proto"] = QJsonValue(con->profile.protocol);
+        json["protoParam"] = QJsonValue(con->profile.protocolParam);
+        json["obfs"] = QJsonValue(con->profile.obfs);
+        json["obfsParam"] = QJsonValue(con->profile.obfsParam);
         confArray.append(QJsonValue(json));
     }
 
@@ -280,13 +270,11 @@ void ConfigHelper::exportShadowrocketJson(const ConnectionTableModel &model, con
     QFile JSONFile(file);
     JSONFile.open(QIODevice::WriteOnly | QIODevice::Text);
     if (!JSONFile.isOpen()) {
-        qCritical() << "Error: cannot open " << file;
-        Logger::error(QString("cannot open %1").arg(file));
+        Logger::error(QString("[Export] cannot open %1").arg(file));
         return;
     }
     if(!JSONFile.isWritable()) {
-        qCritical() << "Error: cannot write into " << file;
-        Logger::error(QString("cannot write into %1").arg(file));
+        Logger::error(QString("[Export] cannot write into %1").arg(file));
         return;
     }
 
@@ -300,20 +288,18 @@ void ConfigHelper::exportTrojanSubscribe(const ConnectionTableModel &model, cons
     int size = model.rowCount();
     for (int i = 0; i < size; ++i) {
         Connection *con = model.getItem(i)->getConnection();
-        uri += con->getURI("");
+        uri += con->getURI(con->getProfile().type);
     }
     uri = uri.toUtf8().toBase64();
 
     QFile Subscribe(file);
     Subscribe.open(QIODevice::WriteOnly | QIODevice::Text);
     if (!Subscribe.isOpen()) {
-        qCritical() << "Error: cannot open " << file;
-        Logger::error(QString("cannot open %1").arg(file));
+        Logger::error(QString("[Export] cannot open %1").arg(file));
         return;
     }
     if(!Subscribe.isWritable()) {
-        qCritical() << "Error: cannot write into " << file;
-        Logger::error(QString("cannot write into %1").arg(file));
+        Logger::error(QString("[Export] cannot write into %1").arg(file));
         return;
     }
 
@@ -321,17 +307,53 @@ void ConfigHelper::exportTrojanSubscribe(const ConnectionTableModel &model, cons
     Subscribe.close();
 }
 
+QJsonObject ConfigHelper::generateVmessSettings()
+{
+    QJsonObject object;
+    object["network"] = "tcp";
+    QJsonObject tcp;
+    QJsonObject tcpHeader;
+    tcpHeader["type"] = "none";
+    tcpHeader["request"] = "{\n    \"version\": \"1.1\",\n    \"method\": \"GET\",\n    \"path\": [],\n    \"headers\": {}\n}";
+    tcpHeader["response"] = "{\n    \"version\": \"1.1\",\n    \"status\": \"200\",\n    \"reason\": \"OK\",\n    \"headers\": {}\n}";
+    tcp["header"] = tcpHeader;
+    object["tcp"] = QJsonValue(tcp);
+    QJsonObject http;
+    http["path"] = "/";
+    object["http"] = QJsonValue(http);
+    QJsonObject ws;
+    ws["path"] = "/";
+    object["ws"] = QJsonValue(ws);
+    QJsonObject kcp;
+    kcp["mtu"] = 1460;
+    kcp["tti"] = 20;
+    kcp["uplinkCapacity"] = 5;
+    kcp["congestion"] = false;
+    kcp["downlinkCapacity"] = 20;
+    kcp["readBufferSize"] = 1;
+    kcp["writeBufferSize"] = 1;
+    QJsonObject kcpHeader;
+    kcpHeader["type"] = "none";
+    kcp["header"] = kcpHeader;
+    object["kcp"] = kcp;
+    QJsonObject tls;
+    tls["enable"] = false;
+    tls["allowInsecure"] = false;
+    tls["allowInsecureCiphers"] = false;
+    tls["serverName"] = "";
+    object["tls"] = QJsonValue(tls);
+    return object;
+}
+
 Connection* ConfigHelper::configJsonToConnection(const QString &file)
 {
     QFile JSONFile(file);
     JSONFile.open(QIODevice::ReadOnly | QIODevice::Text);
     if (!JSONFile.isOpen()) {
-        qCritical() << "Error: cannot open " << file;
-        Logger::error(QString("cannot open %1").arg(file));
+        Logger::error(QString("[Connection] cannot open %1").arg(file));
     }
     if(!JSONFile.isReadable()) {
-        qCritical() << "Error: cannot read " << file;
-        Logger::error(QString("cannot read %1").arg(file));
+        Logger::error(QString("[Connection] cannot read %1").arg(file));
     }
 
     QJsonParseError pe;
@@ -341,8 +363,7 @@ Connection* ConfigHelper::configJsonToConnection(const QString &file)
         qCritical() << pe.errorString();
     }
     if (JSONDoc.isEmpty()) {
-        qCritical() << "JSON Document" << file << "is empty!";
-        Logger::error(QString("JSON Document %1 is empty!").arg(file));
+        Logger::error(QString("[Connection] JSON Document %1 is empty!").arg(file));
         return nullptr;
     }
     QJsonObject configObj = JSONDoc.object();
@@ -366,20 +387,22 @@ void ConfigHelper::connectionToJson(TQProfile &profile)
 {
     QJsonObject configObj;
     configObj["run_type"] = "client";
-    configObj["local_addr"] = isEnableIpv6Support() ? (isShareOverLan() ? "::" : "::1") : (isShareOverLan() ? "0.0.0.0" : "127.0.0.1");
-    configObj["local_port"] = socks5Port;
+    configObj["local_addr"] = inboundSettings["enableIpv6Support"].toBool() ? (inboundSettings["shareOverLan"].toBool() ? "::" : "::1") : (inboundSettings["shareOverLan"].toBool() ? "0.0.0.0" : "127.0.0.1");
+    configObj["local_port"] = inboundSettings["socks5LocalPort"].toInt();
     configObj["remote_addr"] = profile.serverAddress;
     configObj["remote_port"] = profile.serverPort;
+    configObj["buffer_size"] = trojanSettings["bufferSize"];
     QJsonArray passwordArray;
     passwordArray.append(profile.password);
     configObj["password"] = QJsonValue(passwordArray);
-    configObj["log_level"] = logLevel;
+    configObj["log_level"] = generalSettings["logLevel"].toInt();
+    configObj["log_file"] = Utils::getLogDir() + "/core.log";
     QJsonObject ssl;
     ssl["verify"] = profile.verifyCertificate;
     ssl["verify_hostname"] = profile.verifyHostname;
-    ssl["cert"] = trojanCertPath;
-    ssl["cipher"] = trojanCipher;
-    ssl["cipher_tls13"] = trojanCipherTLS13;
+    ssl["cert"] = trojanSettings["trojanCertPath"].toString();
+    ssl["cipher"] = trojanSettings["trojanCipher"].toString();
+    ssl["cipher_tls13"] = trojanSettings["trojanCipherTLS13"].toString();
     ssl["sni"] = profile.sni;
     QJsonArray alpnArray;
     alpnArray.append("h2");
@@ -388,7 +411,7 @@ void ConfigHelper::connectionToJson(TQProfile &profile)
     ssl["reuse_session"] = profile.reuseSession;
     ssl["session_ticket"] = profile.sessionTicket;
     ssl["curves"] = "";
-    ssl["fingerprint"] = parseTLSFingerprint(fingerprint);
+    ssl["fingerprint"] = parseTLSFingerprint(trojanSettings["fingerprint"].toInt());
     configObj["ssl"] = QJsonValue(ssl);
     QJsonObject tcp;
     tcp["no_delay"] = true;
@@ -399,6 +422,7 @@ void ConfigHelper::connectionToJson(TQProfile &profile)
     configObj["tcp"] = QJsonValue(tcp);
     QJsonObject mux;
     mux["enabled"] = profile.mux;
+    mux["concurrency"] = profile.muxConcurrency;
     configObj["mux"] = QJsonValue(mux);
     QJsonObject websocket;
     websocket["enabled"] = profile.websocket;
@@ -407,18 +431,28 @@ void ConfigHelper::connectionToJson(TQProfile &profile)
     websocket["obfuscation_password"] = profile.websocketObfsPassword;
     websocket["double_tls"] = profile.websocketDoubleTLS;
     configObj["websocket"] = QJsonValue(websocket);
+    QJsonObject router;
+    router["enabled"] = trojanSettings["enableTrojanRouter"].toBool();
+    if (router["enabled"].toBool()) {
+        router["direct"] = appendJsonArray(routerSettings["domain"].toObject()["direct"].toArray(), routerSettings["ip"].toObject()["direct"].toArray());
+        router["proxy"] = appendJsonArray(routerSettings["domain"].toObject()["proxy"].toArray(), routerSettings["ip"].toObject()["proxy"].toArray());
+        router["block"] = appendJsonArray(routerSettings["domain"].toObject()["block"].toArray(), routerSettings["ip"].toObject()["block"].toArray());
+        router["default_policy"] = "proxy";
+        router["domain_strategy"] = parseDomainStrategy(routerSettings["domainStrategy"].toString());
+    }
+    configObj["router"] = router;
     QJsonObject api;
-    api["enabled"] = enableTrojanAPI;
+    api["enabled"] = trojanSettings["enableTrojanAPI"].toBool();
     api["api_addr"] = "127.0.0.1";
-    api["api_port"] = trojanAPIPort;
+    api["api_port"] = trojanSettings["trojanAPIPort"].toInt();
     configObj["api"] = QJsonValue(api);
     QJsonObject forward_proxy;
-    forward_proxy["enabled"] = enableForwardProxy;
-    forward_proxy["proxy_addr"] = forwardProxyAddress;
-    forward_proxy["proxy_port"] = forwardProxyPort;
-    if (enableForwardProxyAuthentication) {
-        forward_proxy["username"] = forwardProxyUsername;
-        forward_proxy["password"] = forwardProxyPassword;
+    forward_proxy["enabled"] = outboundSettings["forwardProxy"].toBool();
+    forward_proxy["proxy_addr"] = outboundSettings["forwardProxyAddress"].toString();
+    forward_proxy["proxy_port"] = outboundSettings["forwardProxyPort"].toInt();
+    if (outboundSettings["forwardProxyAuthentication"].toBool()) {
+        forward_proxy["username"] = outboundSettings["forwardProxyUsername"].toString();
+        forward_proxy["password"] = outboundSettings["forwardProxyPassword"].toString();
     }
     configObj["forward_proxy"] = QJsonValue(forward_proxy);
     QJsonDocument JSONDoc(configObj);
@@ -433,12 +467,10 @@ void ConfigHelper::connectionToJson(TQProfile &profile)
     QFile JSONFile(file);
     JSONFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate);
     if (!JSONFile.isOpen()) {
-        qCritical() << "Error: cannot open " << file;
         Logger::error(QString("cannot open %1").arg(file));
         return;
     }
     if(!JSONFile.isWritable()) {
-        qCritical() << "Error: cannot write into " << file;
         Logger::error(QString("cannot write into %1").arg(file));
         return;
     }
@@ -446,6 +478,210 @@ void ConfigHelper::connectionToJson(TQProfile &profile)
     JSONFile.write(JSONDoc.toJson());
     JSONFile.close();
 
+}
+
+void ConfigHelper::generateV2rayJson(TQProfile &profile)
+{
+    QJsonObject configObj;
+    QJsonObject log;
+    log["access"] = Utils::getLogDir() + "/core.log";
+    log["error"] = Utils::getLogDir() + "/core.log";
+    log["level"] = "info";
+    configObj["log"] = log;
+    QJsonObject stats;
+    configObj["stats"] = stats;
+    QJsonObject api;
+    api["tag"] = "api";
+    QJsonArray apiServices;
+    apiServices.append("StatsService");
+    api["services"] = apiServices;
+    configObj["api"] = api;
+    QJsonObject policy;
+    QJsonObject system;
+    system["statsInboundUplink"] = true;
+    system["statsInboundDownlink"] = true;
+    policy["system"] = system;
+    configObj["policy"] = policy;
+    QJsonObject routing;
+    routing["domainStrategy"] = routerSettings["domainStrategy"].toString();
+    QJsonArray rules;
+    QJsonObject apiRule;
+    apiRule["type"] = "field";
+    apiRule["outboundTag"] = "api";
+    QJsonArray apiRuleInboundTag;
+    apiRuleInboundTag.append("api_in");
+    apiRule["inboundTag"] = apiRuleInboundTag;
+    QJsonObject direct;
+    direct["type"] = "field";
+    if (routerSettings["domain"].toObject()["direct"].toArray().size() != 0)
+        direct["domain"] = routerSettings["domain"].toObject()["direct"].toArray();
+    if (routerSettings["domain"].toObject()["direct"].toArray().size() != 0)
+        direct["ip"] = routerSettings["ip"].toObject()["direct"].toArray();
+    direct["outboundTag"] = "direct";
+    QJsonObject proxy;
+    proxy["type"] = "field";
+    if (routerSettings["domain"].toObject()["proxy"].toArray().size() != 0)
+        proxy["domain"] = routerSettings["domain"].toObject()["proxy"].toArray();
+    if (routerSettings["ip"].toObject()["proxy"].toArray().size() != 0)
+        proxy["ip"] = routerSettings["ip"].toObject()["proxy"].toArray();
+    proxy["outboundTag"] = "proxy";
+    QJsonObject block;
+    block["type"] = "field";
+    if (routerSettings["ip"].toObject()["block"].toArray().size() != 0)
+     block["domain"] = routerSettings["domain"].toObject()["block"].toArray();
+    if (routerSettings["ip"].toObject()["block"].toArray().size() != 0)
+        block["ip"] = routerSettings["ip"].toObject()["block"].toArray();
+    block["outboundTag"] = "block";
+    rules.append(apiRule);
+    if (routerSettings["domain"].toObject()["direct"].toArray().size() != 0 || routerSettings["ip"].toObject()["direct"].toArray().size() != 0)
+        rules.append(direct);
+    if (routerSettings["domain"].toObject()["proxy"].toArray().size() != 0 || routerSettings["ip"].toObject()["proxy"].toArray().size() != 0)
+        rules.append(proxy);
+    if (routerSettings["domain"].toObject()["block"].toArray().size() != 0 || routerSettings["ip"].toObject()["block"].toArray().size() != 0)
+        rules.append(block);
+    routing["rules"] = rules;
+    configObj["routing"] = routing;
+    QJsonArray inboundsArray;
+    QJsonObject socks;
+    QJsonObject socksSettings;
+    socks["port"] = inboundSettings["socks5LocalPort"];
+    socks["protocol"] = "socks";
+    socksSettings["udp"] = true;
+    socksSettings["auth"] = "noauth";
+    socksSettings["ip"] = getInboundSettings()["enableIpv6Support"].toBool() ? (getInboundSettings()["shareOverLan"].toBool() ? "::" : "::1") : (getInboundSettings()["shareOverLan"].toBool() ? "0.0.0.0" : "127.0.0.1");
+    socks["settings"] = socksSettings;
+    socks["tag"] = "inbound";
+    QJsonObject apiIn;
+    apiIn["listen"] = "127.0.0.1";
+    apiIn["port"] = trojanSettings["trojanAPIPort"].toInt();
+    apiIn["protocol"] = "dokodemo-door";
+    QJsonObject apiInSettings;
+    apiInSettings["address"] = "127.0.0.1";
+    apiIn["settings"] = apiInSettings;
+    apiIn["tag"] = "api_in";
+    inboundsArray.append(apiIn);
+    inboundsArray.append(socks);
+    configObj["inbounds"] = inboundsArray;
+    QJsonArray outboundsArray;
+    QJsonObject outbound;
+    outbound["protocol"] = "vmess";
+    outbound["sendThrough"] = "0.0.0.0";
+    outbound["tag"] = "proxy";
+    QJsonArray vnextArray;
+    QJsonObject vnext;
+    vnext["address"] = profile.serverAddress;
+    vnext["port"] = profile.serverPort;
+    QJsonArray usersArray;
+    QJsonObject users;
+    users["id"] = profile.uuid;
+    users["alterId"] = profile.alterID;
+    users["security"] = profile.security;
+    usersArray.append(users);
+    vnext["users"] = usersArray;
+    vnextArray.append(vnext);
+    QJsonObject streamSettings;
+    streamSettings["network"] = profile.vmessSettings["network"].toString();
+    streamSettings["security"] = profile.vmessSettings["tls"].toObject()["enable"].toBool() ? "tls" : "none";
+    if (streamSettings["network"] == "tcp") {
+        QJsonObject tcpSettings;
+        QJsonObject tcpHeader;
+        tcpHeader["type"] = profile.vmessSettings["tcp"].toObject()["header"].toObject()["type"].toString();
+        tcpHeader["request"] = QJsonDocument::fromJson(profile.vmessSettings["tcp"].toObject()["header"].toObject()["request"].toString().toUtf8().data()).object();
+        tcpHeader["response"] = QJsonDocument::fromJson(profile.vmessSettings["tcp"].toObject()["header"].toObject()["response"].toString().toUtf8().data()).object();
+        tcpSettings["header"] = tcpHeader;
+        streamSettings["tcpSettings"] = tcpSettings;
+    } else if (streamSettings["network"] == "kcp") {
+        QJsonObject kcpSettings;
+        kcpSettings["mtu"] = profile.vmessSettings["kcp"].toObject()["mtu"].toInt();
+        kcpSettings["tti"] = profile.vmessSettings["kcp"].toObject()["tti"].toInt();
+        kcpSettings["uplinkCapacity"] = profile.vmessSettings["kcp"].toObject()["uplinkCapacity"].toInt();
+        kcpSettings["downlinkCapacity"] = profile.vmessSettings["kcp"].toObject()["downlinkCapacity"].toInt();
+        kcpSettings["congestion"] = profile.vmessSettings["kcp"].toObject()["congestion"].toBool();
+        kcpSettings["readBufferSize"] = profile.vmessSettings["kcp"].toObject()["readBufferSize"].toInt();
+        kcpSettings["downlinkCapacity"] = profile.vmessSettings["kcp"].toObject()["downlinkCapacity"].toInt();
+        QJsonObject kcpHeader;
+        kcpHeader["type"] = profile.vmessSettings["kcp"].toObject()["header"].toObject()["type"].toString();
+        kcpSettings["header"] = kcpHeader;
+        streamSettings["kcpSettings"] = kcpSettings;
+    } else if (streamSettings["network"] == "ws") {
+        QJsonObject wsSettings;
+        wsSettings["path"] = profile.vmessSettings["ws"].toObject()["path"];
+        wsSettings["headers"] = profile.vmessSettings["ws"].toObject()["header"];
+        streamSettings["wsSettings"] = wsSettings;
+    } else if (streamSettings["network"] == "http") {
+        QJsonObject httpSettings;
+        httpSettings["host"] = profile.vmessSettings["http"].toObject()["host"].toArray();
+        httpSettings["path"] = profile.vmessSettings["http"].toObject()["path"].toString();
+        streamSettings["httpSettings"] = httpSettings;
+    } else if (streamSettings["network"] == "quic") {
+        QJsonObject quicSettings;
+        quicSettings["security"] = profile.vmessSettings["quic"].toObject()["security"].toString();
+        quicSettings["key"] = profile.vmessSettings["quic"].toObject()["key"].toString();
+        QJsonObject quicHeader;
+        quicHeader["type"] = profile.vmessSettings["quic"].toObject()["header"].toObject()["type"].toString();
+        streamSettings["quicSettings"] = quicSettings;
+    }
+    QJsonObject tlsSettings;
+    tlsSettings["allowInsecure"] = profile.vmessSettings["tls"].toObject()["allowInsecure"].toBool();
+    tlsSettings["allowInsecureCiphers"] = profile.vmessSettings["tls"].toObject()["allowInsecureCiphers"].toBool();
+    tlsSettings["serverName"] = profile.vmessSettings["tls"].toObject()["serverName"].toString();
+    tlsSettings["alpn"] = profile.vmessSettings["tls"].toObject()["alpn"].toArray();
+    streamSettings["tlsSettings"] = tlsSettings;
+    QJsonObject freedom;
+    freedom["protocol"] = "freedom";
+    freedom["sendThrough"] = "0.0.0.0";
+    QJsonObject settingsFreedom;
+    settingsFreedom["domainStrategy"] = "AsIs";
+    settingsFreedom["redirect"] = ":0";
+    settingsFreedom["userLevel"] = 0;
+    freedom["settings"] = settingsFreedom;
+    freedom["streamSettings"] = QJsonObject();
+    freedom["tag"] = "direct";
+    QJsonObject blackhole;
+    blackhole["protocol"] = "blackhole";
+    blackhole["sendThrough"] = "0.0.0.0";
+    QJsonObject response;
+    response["type"] = "none";
+    QJsonObject settingsBlackHole;
+    settingsBlackHole["response"] = response;
+    blackhole["settings"] = settingsBlackHole;
+    blackhole["streamSettings"] = QJsonObject();
+    blackhole["tag"] = "block";
+    QJsonObject vmessOutSettings;
+    vmessOutSettings["vnext"] = vnextArray;
+    QJsonObject mux;
+    mux["enabled"] = profile.mux;
+    mux["concurrency"] = profile.muxConcurrency;
+    outbound["mux"] = mux;
+    outbound["settings"] = vmessOutSettings;
+    outbound["streamSettings"] = streamSettings;
+    outboundsArray.append(outbound);
+    outboundsArray.append(freedom);
+    outboundsArray.append(blackhole);
+    configObj["outbounds"] = outboundsArray;
+
+    QJsonDocument JSONDoc(configObj);
+
+#ifdef Q_OS_WIN
+        QString file = QCoreApplication::applicationDirPath() + "/config.json";
+#else
+        QDir configDir = QDir::homePath() + "/.config/trojan-qt5";
+        QString file = configDir.absolutePath() + "/config.json";
+#endif
+
+    QFile JSONFile(file);
+    JSONFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate);
+    if (!JSONFile.isOpen()) {
+        Logger::error(QString("cannot open %1").arg(file));
+        return;
+    }
+    if(!JSONFile.isWritable()) {
+        Logger::error(QString("cannot write into %1").arg(file));
+        return;
+    }
+
+    JSONFile.write(JSONDoc.toJson());
+    JSONFile.close();
 }
 
 void ConfigHelper::generateHaproxyConf(const ConnectionTableModel &model)
@@ -473,12 +709,33 @@ void ConfigHelper::generateHaproxyConf(const ConnectionTableModel &model)
         TQProfile p = model.getItem(i)->getConnection()->getProfile();
         text += QString("    server trojan%1 %2:%3 check inter 1000 weight 2\n").arg(QString::number(i)).arg(p.serverAddress).arg(i);
     }
-    text.replace(QString("__STATUS__"), QString("%1:%2").arg(isEnableIpv6Support() ? (isShareOverLan() ? "::" : "::1") : (isShareOverLan() ? "0.0.0.0" : "127.0.0.1")).arg(QString::number(haproxyStatusPort)));
-    text.replace(QString("__TROJAN__"), QString("%1:%2").arg(isEnableIpv6Support() ? (isShareOverLan() ? "::" : "::1") : (isShareOverLan() ? "0.0.0.0" : "127.0.0.1")).arg(QString::number(haproxyPort)));
+    text.replace(QString("__STATUS__"), QString("%1:%2").arg(getInboundSettings()["enableIpv6Support"].toBool() ? (getInboundSettings()["shareOverLan"].toBool() ? "::" : "::1") : (getInboundSettings()["shareOverLan"].toBool() ? "0.0.0.0" : "127.0.0.1")).arg(QString::number(inboundSettings["haproxyStatusPort"].toInt())));
+    text.replace(QString("__TROJAN__"), QString("%1:%2").arg(getInboundSettings()["enableIpv6Support"].toBool() ? (getInboundSettings()["shareOverLan"].toBool() ? "::" : "::1") : (getInboundSettings()["shareOverLan"].toBool() ? "0.0.0.0" : "127.0.0.1")).arg(QString::number(inboundSettings["haproxyPort"].toInt())));
     text.replace(QString("__MODE__"), QString("%1"));
     file.seek(0); // go to the beginning of the file
     file.write(text.toUtf8()); // write the new text back to the file
     file.close(); // close the file handle.
+}
+
+QJsonArray ConfigHelper::appendJsonArray(QJsonArray array1, QJsonArray array2)
+{
+    for (QJsonValue value : array2) {
+        array1.append(value);
+    }
+
+    return array1;
+}
+
+QString ConfigHelper::parseDomainStrategy(QString ds) const
+{
+    if (ds == "AsIs")
+        return "as_is";
+    else if (ds == "IPIfNonMatch")
+        return "ip_if_nonmatch";
+    else if (ds == "IPOnDemand")
+        return "ip_on_demand";
+    else
+        return "";
 }
 
 QString ConfigHelper::parseTLSFingerprint(int choice) const
@@ -500,51 +757,6 @@ QString ConfigHelper::parseTLSFingerprint(int choice) const
     return "";
 }
 
-QString ConfigHelper::getTheme() const
-{
-    return theme;
-}
-
-int ConfigHelper::getFLSFingerPrint() const
-{
-    return fingerprint;
-}
-
-int ConfigHelper::getLogLevel() const
-{
-    return logLevel;
-}
-
-int ConfigHelper::getToolbarStyle() const
-{
-    return toolbarStyle;
-}
-
-int ConfigHelper::getSocks5Port() const
-{
-    return socks5Port;
-}
-
-int ConfigHelper::getHttpPort() const
-{
-    return httpPort;
-}
-
-int ConfigHelper::getPACPort() const
-{
-    return pacPort;
-}
-
-int ConfigHelper::getHaproxyPort() const
-{
-    return haproxyPort;
-}
-
-int ConfigHelper::getHaproxyStatusPort() const
-{
-    return haproxyStatusPort;
-}
-
 QString ConfigHelper::getSystemProxySettings() const
 {
     return systemProxyMode;
@@ -558,136 +770,6 @@ bool ConfigHelper::isTrojanOn() const
 bool ConfigHelper::isEnableServerLoadBalance() const
 {
     return serverLoadBalance;
-}
-
-bool ConfigHelper::isEnableIpv6Support() const
-{
-    return enableIpv6Support;
-}
-
-bool ConfigHelper::isShareOverLan() const
-{
-    return shareOverLan;
-}
-
-bool ConfigHelper::isEnableHttpMode() const
-{
-    return enableHttpMode;
-}
-
-bool ConfigHelper::isHideWindowOnStartup() const
-{
-    return hideWindowOnStartup;
-}
-
-bool ConfigHelper::isStartAtLogin() const
-{
-    return startAtLogin;
-}
-
-bool ConfigHelper::isOnlyOneInstance() const
-{
-    return onlyOneInstace;
-}
-
-bool ConfigHelper::isCheckPortAvailability() const
-{
-    return checkPortAvailability;
-}
-
-bool ConfigHelper::isEnableNotification() const
-{
-    return enableNotification;
-}
-
-bool ConfigHelper::isHideDockIcon() const
-{
-    return hideDockIcon;
-}
-
-bool ConfigHelper::isEnableForwardProxy() const
-{
-    return enableForwardProxy;
-}
-
-int ConfigHelper::getForwardProxyType() const
-{
-    return forwardProxyType;
-}
-
-QString ConfigHelper::getForwardProxyAddress() const
-{
-    return forwardProxyAddress;
-}
-
-int ConfigHelper::getForwardProxyPort() const
-{
-    return forwardProxyPort;
-}
-
-bool ConfigHelper::isEnableForwardProxyAuthentication() const
-{
-    return enableForwardProxyAuthentication;
-}
-
-QString ConfigHelper::getForwardProxyUsername() const
-{
-    return forwardProxyUsername;
-}
-
-QString ConfigHelper::getForwardProxyPassword() const
-{
-    return forwardProxyPassword;
-}
-
-int ConfigHelper::getGfwlistUrl() const
-{
-    return gfwlistUrl;
-}
-
-QString ConfigHelper::getUpdateUserAgent() const
-{
-    return updateUserAgent;
-}
-
-QString ConfigHelper::getFilterKeyword() const
-{
-    return filterKeyword;
-}
-
-int ConfigHelper::getMaximumSubscribe() const
-{
-    return maximumSubscribe;
-}
-
-bool ConfigHelper::isEnableTrojanAPI() const
-{
-    return enableTrojanAPI;
-}
-
-bool ConfigHelper::isEnableTrojanRouter() const
-{
-    return enableTrojanRouter;
-}
-
-int ConfigHelper::getTrojanAPIPort() const
-{
-    return trojanAPIPort;
-}
-
-QString ConfigHelper::getTrojanCertPath() const
-{
-    return trojanCertPath;
-}
-
-QString ConfigHelper::getTrojanCipher() const
-{
-    return trojanCipher;
-}
-
-QString ConfigHelper::getTrojanCipherTLS13() const
-{
-    return trojanCipherTLS13;
 }
 
 bool ConfigHelper::isAutoUpdateSubscribes() const
@@ -705,52 +787,47 @@ bool ConfigHelper::isShowFilterBar() const
     return showFilterBar;
 }
 
-bool ConfigHelper::isNativeMenuBar() const
+QJsonObject ConfigHelper::getGeneralSettings() const
 {
-    return nativeMenuBar;
+    return generalSettings;
 }
 
-void ConfigHelper::setGeneralSettings(int ts, bool hide, QString th, bool sal, bool oneInstance, bool cpa, bool en, bool hdi, bool nativeMB, int ll, bool hm, bool eis, bool sol, int sp, int hp, int pp, int ap, int hsp, bool efp, int fpt, QString fpa, int fpp, bool efpa, QString fpu, QString fppa, int glu, QString uua, QString fkw, int ms, int fp, bool eta, bool etr, int tap, QString tcp, QString tc, QString tct13)
+QJsonObject ConfigHelper::getInboundSettings() const
 {
-    if (toolbarStyle != ts) {
-        emit toolbarStyleChanged(static_cast<Qt::ToolButtonStyle>(ts));
+    return inboundSettings;
+}
+
+QJsonObject ConfigHelper::getOutboundSettings() const
+{
+    return outboundSettings;
+}
+
+QJsonObject ConfigHelper::getSubscribeSettings() const
+{
+    return subscribeSettings;
+}
+
+QJsonObject ConfigHelper::getRouterSettings() const
+{
+    return routerSettings;
+}
+
+QJsonObject ConfigHelper::getTrojanSettings() const
+{
+    return trojanSettings;
+}
+
+void ConfigHelper::setGeneralSettings(QJsonObject gs, QJsonObject is, QJsonObject os, QJsonObject ss, QJsonObject rs, QJsonObject ts)
+{
+    if (gs["toolbarStyle"].toInt() != generalSettings["toolbarStyle"].toInt()) {
+        emit toolbarStyleChanged(static_cast<Qt::ToolButtonStyle>(gs["toolbarStyle"].toInt()));
     }
-    toolbarStyle = ts;
-    hideWindowOnStartup = hide;
-    theme = th;
-    startAtLogin = sal;
-    onlyOneInstace = oneInstance;
-    checkPortAvailability = cpa;
-    enableNotification = en;
-    hideDockIcon = hdi;
-    nativeMenuBar = nativeMB;
-    logLevel = ll;
-    enableHttpMode = hm;
-    enableIpv6Support = eis;
-    shareOverLan = sol;
-    socks5Port = sp;
-    httpPort = hp;
-    pacPort = pp;
-    haproxyPort = ap;
-    haproxyStatusPort = hsp;
-    enableForwardProxy = efp;
-    forwardProxyType = fpt;
-    forwardProxyAddress = fpa;
-    forwardProxyPort = fpp;
-    enableForwardProxyAuthentication = efpa;
-    forwardProxyUsername = fpu;
-    forwardProxyPassword = fppa;
-    gfwlistUrl = glu;
-    updateUserAgent = uua;
-    filterKeyword = fkw;
-    maximumSubscribe = ms;
-    fingerprint = fp;
-    enableTrojanAPI = eta;
-    enableTrojanRouter = etr;
-    trojanAPIPort = tap;
-    trojanCertPath = tcp;
-    trojanCipher = tc;
-    trojanCipherTLS13 = tct13;
+    generalSettings = gs;
+    inboundSettings = is;
+    outboundSettings = os;
+    subscribeSettings = ss;
+    routerSettings = rs;
+    trojanSettings = ts;
 }
 
 void ConfigHelper::setSystemProxySettings(QString mode)
@@ -819,48 +896,70 @@ QList<TQSubscribe> ConfigHelper::readSubscribes()
 
 void ConfigHelper::readGeneralSettings()
 {
-    theme = settings->value("Theme", QVariant("Fusion")).toString();
     trojanOn = settings->value("TrojanOn", QVariant(false)).toBool();
-    toolbarStyle = settings->value("ToolbarStyle", QVariant(3)).toInt();
-    logLevel = settings->value("LogLevel", QVariant(1)).toInt();
-    startAtLogin = settings->value("StartAtLogin").toBool();
     autoUpdateSubscribes = settings->value("AutoUpdateSubscribes", QVariant(false)).toBool();
     systemProxyMode = settings->value("SystemProxyMode", QVariant("pac")).toString();
     serverLoadBalance = settings->value("ServerLoadBalance", QVariant(false)).toBool();
-    hideWindowOnStartup = settings->value("HideWindowOnStartup").toBool();
-    onlyOneInstace = settings->value("OnlyOneInstance", QVariant(true)).toBool();
-    checkPortAvailability = settings->value("CheckPortAvailability", QVariant(true)).toBool();
-    enableNotification = settings->value("EnableNotification", QVariant(true)).toBool();
-    hideDockIcon = settings->value("HideDockIcon", QVariant(false)).toBool();
     showToolbar = settings->value("ShowToolbar", QVariant(true)).toBool();
     showFilterBar = settings->value("ShowFilterBar", QVariant(true)).toBool();
-    nativeMenuBar = settings->value("NativeMenuBar", QVariant(false)).toBool();
-    enableHttpMode = settings->value("EnableHttpMode", QVariant(true)).toBool();
-    shareOverLan = settings->value("ShareOverLan", QVariant(false)).toBool();
-    enableIpv6Support = settings->value("EnableIpv6Support", QVariant(false)).toBool();
-    socks5Port = settings->value("Socks5LocalPort", QVariant(10086)).toInt();
-    httpPort = settings->value("HttpLocalPort", QVariant(10087)).toInt();
-    pacPort = settings->value("PACLocalPort", QVariant(8070)).toInt();
-    haproxyStatusPort = settings->value("HaproxyStatusPort", QVariant(2080)).toInt();
-    haproxyPort = settings->value("HaproxyPort", QVariant(7777)).toInt();
-    enableForwardProxy = settings->value("ForwardProxy", QVariant(false)).toBool();
-    forwardProxyType = settings->value("ForwardProxyType", QVariant(0)).toInt();
-    forwardProxyAddress = settings->value("ForwardProxyAddress", QVariant("127.0.0.1")).toString();
-    forwardProxyPort = settings->value("ForwardProxyPort", QVariant(1086)).toInt();
-    enableForwardProxyAuthentication = settings->value("ForwardProxyAuthentication", QVariant(false)).toBool();
-    forwardProxyUsername = settings->value("ForwardProxyUsername", QVariant("")).toString();
-    forwardProxyPassword = settings->value("ForwardProxyPassword", QVariant("")).toString();
-    gfwlistUrl = settings->value("GFWListUrl", QVariant(0)).toInt();
-    updateUserAgent = settings->value("UpdateUserAgent", QVariant(QString("Trojan-Qt5/%1").arg(APP_VERSION))).toString();
-    filterKeyword = settings->value("FilterKeyword", QVariant("")).toString();
-    maximumSubscribe = settings->value("MaximumSubscribe", QVariant(0)).toInt();
-    fingerprint = settings->value("Fingerprint", QVariant(0)).toInt();
-    enableTrojanAPI = settings->value("EnableTrojanAPI", QVariant(true)).toBool();
-    enableTrojanRouter = settings->value("EnableTrojanRouter", QVariant(false)).toBool();
-    trojanAPIPort = settings->value("TrojanAPIPort", QVariant(10000)).toInt();
-    trojanCertPath = settings->value("TrojanCertPath", QVariant("")).toString();
-    trojanCipher = settings->value("TrojanCipher", QVariant("ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-SHA:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:DHE-RSA-AES128-SHA:DHE-RSA-AES256-SHA:AES128-SHA:AES256-SHA:DES-CBC3-SHA")).toString();
-    trojanCipherTLS13 = settings->value("TrojanCipherTLS13", QVariant("TLS_AES_128_GCM_SHA256:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_256_GCM_SHA384")).toString();
+    QJsonObject gtemp;
+    gtemp["theme"] = "Fusion";
+    gtemp["darkTheme"] = false;
+    gtemp["toolbarStyle"] = 3;
+    gtemp["logLevel"] = 1;
+    gtemp["startAtLogin"] = false;
+    gtemp["hideWindowOnStartup"] = false;
+    gtemp["onlyOneInstace"] = true;
+    gtemp["checkPortAvailability"] = true;
+    gtemp["enableNotification"] = true;
+    gtemp["hideDockIcon"] = false;
+    gtemp["showToolbar"] = true;
+    gtemp["showFilterBar"] = true;
+    gtemp["nativeMenuBar"] = false;
+    gtemp["showAiportAndDonation"] = true;
+    generalSettings = settings->value("GeneralSettings", QVariant(gtemp)).toJsonObject();
+    QJsonObject itemp;
+    itemp["enableHttpMode"] = true;
+    itemp["shareOverLan"] = false;
+    itemp["enableIpv6Support"] = false;
+    itemp["socks5LocalPort"] = 51837;
+    itemp["httpLocalPort"] = 58591;
+    itemp["pacLocalPort"] = 8070;
+    itemp["haproxyStatusPort"] = 2080;
+    itemp["haproxyPort"] = 7777;
+    inboundSettings = settings->value("InboundSettings", QVariant(itemp)).toJsonObject();
+    QJsonObject otemp;
+    otemp["forwardProxy"] = false;
+    otemp["forwardProxyType"] = 0;
+    otemp["forwardProxyAddress"] = "127.0.0.1";
+    otemp["forwardProxyPort"] = 1086;
+    otemp["forwardProxyAuthentication"] = false;
+    otemp["forwardProxyUsername"] = "";
+    otemp["forwardProxyPassword"] = "";
+    outboundSettings = settings->value("OutboundSettings", QVariant(otemp)).toJsonObject();
+    QJsonObject stemp;
+    stemp["gfwListUrl"] = 2;
+    stemp["updateUserAgent"] = QString("Trojan-Qt5/%1").arg(APP_VERSION);
+    stemp["filterKeyword"] = "";
+    stemp["maximumSubscribe"] = 0;
+    stemp["autoFetchGroupName"] = true;
+    stemp["overwriteAllowInsecure"] = false;
+    stemp["overwriteAllowInsecureCiphers"] = false;
+    stemp["overwriteTcpFastOpen"] = false;
+    subscribeSettings = settings->value("SubscribeSettings", QVariant(stemp)).toJsonObject();
+    QJsonObject rtemp;
+    rtemp["domainStrategy"] = "AsIs";
+    routerSettings = settings->value("RouterSettings", QVariant(rtemp)).toJsonObject();
+    QJsonObject ttemp;
+    ttemp["fingerprint"] = 2;
+    ttemp["enableTrojanAPI"] = true;
+    ttemp["enableTrojanRouter"] = false;
+    ttemp["trojanAPIPort"] = 57721;
+    ttemp["trojanCertPath"] = "";
+    ttemp["trojanCipher"] = "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-SHA:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:DHE-RSA-AES128-SHA:DHE-RSA-AES256-SHA:AES128-SHA:AES256-SHA:DES-CBC3-SHA";
+    ttemp["trojanCipherTLS13"] = "TLS_AES_128_GCM_SHA256:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_256_GCM_SHA384";
+    ttemp["bufferSize"] = 32;
+    trojanSettings = settings->value("TrojanSettings", QVariant(ttemp)).toJsonObject();
 }
 
 void ConfigHelper::checkProfileDataUsageReset(TQProfile &profile)
@@ -906,7 +1005,9 @@ void ConfigHelper::setStartAtLogin()
             "Exec=%2\n"
             "Type=Application\n"
             "Terminal=false\n"
-            "X-GNOME-Autostart-enabled=true\n");
+            "X-GNOME-Autostart-enabled=true\n"
+            "StartWMClass=trojan-qt5"
+            "MimeType=x-scheme-handler/ss;x-scheme-handler/ssr;x-scheme-handler/vmess;x-scheme-handler/trojan;x-scheme-handler/snell;x-scheme-handler/trojan-qt5;x-scheme-handler/felix;\n");
 #elif defined(Q_OS_MAC)
     QFile file(QDir::homePath() + "/Library/LaunchAgents/org.trojan.trojan-qt5.launcher.plist");
     QString fileContent(
@@ -935,7 +1036,7 @@ void ConfigHelper::setStartAtLogin()
     QString fileContent;
 #endif
 
-    if (this->isStartAtLogin()) {
+    if (this->getGeneralSettings()["startAtLogin"].toBool()) {
         // Create start up item
     #if defined(Q_OS_WIN)
         settings.setValue(applicationName, applicationFilePath);

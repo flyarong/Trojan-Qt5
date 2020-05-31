@@ -40,6 +40,9 @@ public:
     void onCopyTerminalProxy();
     void onSetProxyToTelegram();
     void onTrojanSubscribeSettings();
+#if defined (Q_OS_WIN)
+    void onInstallTAPDriver();
+#endif
     void showServerSpeedPlot();
 
 signals:
@@ -47,6 +50,8 @@ signals:
 
 public slots:
     void activate();
+    void onUpdateSubscribeWithProxy();
+    void onUpdateSubscribe();
     void onToggleMode(QAction *action);
     void onToggleConnection();
     void onToggleServer(QAction *actived);

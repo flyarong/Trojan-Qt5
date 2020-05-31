@@ -4,7 +4,9 @@
 #include "connection.h"
 #include "sseditdialog.h"
 #include "ssreditdialog.h"
+#include "vmesseditdialog.h"
 #include "trojaneditdialog.h"
+#include "snelleditdialog.h"
 #include "urihelper.h"
 #include "uriinputdialog.h"
 #include "userrules.h"
@@ -15,6 +17,7 @@
 #include "midman.h"
 #include "aboutdialog.h"
 #include "logger.h"
+#include "utils.h"
 #include "QtAwesome.h"
 
 #include <QClipboard>
@@ -60,20 +63,23 @@ MainWindow::MainWindow(ConfigHelper *confHelper, QWidget *parent) :
     proxyModel->setFilterCaseSensitivity(Qt::CaseInsensitive);
     proxyModel->setFilterKeyColumn(-1);//read from all columns
     ui->connectionView->setModel(proxyModel);
+    ui->connectionView->setFocusPolicy(Qt::NoFocus);
+    ui->connectionView->setSelectionBehavior(QAbstractItemView::SelectRows);
+    ui->connectionView->setSelectionMode(QAbstractItemView::ExtendedSelection);
     ui->toolBar->setToolButtonStyle(static_cast<Qt::ToolButtonStyle>
-                                    (configHelper->getToolbarStyle()));
+                                    (configHelper->getGeneralSettings()["toolbarStyle"].toInt()));
 
     setupActionIcon();
 
     // setup statusbar
     ui->statusbar->showMessage(QString("  SOCKS5 127.0.0.1:%1           HTTP 127.0.0.1:%2            PAC 127.0.0.1:%3            SPEED Up: %4 | Down: %5")
-            .arg(configHelper->getSocks5Port())
-            .arg(configHelper->getHttpPort())
-            .arg(configHelper->getPACPort())
+            .arg(configHelper->getInboundSettings()["socks5LocalPort"].toInt())
+            .arg(configHelper->getInboundSettings()["httpLocalPort"].toInt())
+            .arg(configHelper->getInboundSettings()["pacLocalPort"].toInt())
             .arg(QString::number(0))
             .arg(QString::number(0)));
 
-    sbMgr = new SubscribeManager(configHelper, this);
+    sbMgr = new SubscribeManager(this, configHelper);
     notifier = new StatusNotifier(this, configHelper, sbMgr, this);
 
     connect(configHelper, &ConfigHelper::toolbarStyleChanged,
@@ -93,11 +99,10 @@ MainWindow::MainWindow(ConfigHelper *confHelper, QWidget *parent) :
     connect(sbMgr, &SubscribeManager::addUri, this,
             &MainWindow::onAddURIFromSubscribe);
 
-
     //some UI changes accoding to config
     ui->toolBar->setVisible(configHelper->isShowToolbar());
     ui->actionShowFilterBar->setChecked(configHelper->isShowFilterBar());
-    ui->menuBar->setNativeMenuBar(configHelper->isNativeMenuBar());
+    ui->menuBar->setNativeMenuBar(configHelper->getGeneralSettings()["nativeMenuBar"].toBool());
 
     ui->toolBar->setFixedHeight(92);
 
@@ -132,8 +137,12 @@ MainWindow::MainWindow(ConfigHelper *confHelper, QWidget *parent) :
             this, [this]() { onAddManually("ss"); });
     connect(ui->actionManuallySSR, &QAction::triggered,
             this, [this]() { onAddManually("ssr"); });
+    connect(ui->actionManuallyVmess, &QAction::triggered,
+            this, [this]() { onAddManually("vmess"); });
     connect(ui->actionManuallyTrojan, &QAction::triggered,
             this, [this]() { onAddManually("trojan"); });
+    connect(ui->actionManuallySnell, &QAction::triggered,
+            this, [this]() { onAddManually("snell"); });
     connect(ui->actionQRCode, &QAction::triggered,
             this, &MainWindow::onAddScreenQRCode);
     connect(ui->actionScanQRCodeCapturer, &QAction::triggered,
@@ -159,6 +168,8 @@ MainWindow::MainWindow(ConfigHelper *confHelper, QWidget *parent) :
             this, &MainWindow::onDisconnect);
     connect(ui->actionTestLatency, &QAction::triggered,
             this, &MainWindow::onLatencyTest);
+    connect(ui->actionClearTraffic, &QAction::triggered,
+                this, &MainWindow::onClearTrafficStats);
     connect(ui->actionMoveUp, &QAction::triggered, this, &MainWindow::onMoveUp);
     connect(ui->actionMoveDown, &QAction::triggered,
             this, &MainWindow::onMoveDown);
@@ -173,8 +184,8 @@ MainWindow::MainWindow(ConfigHelper *confHelper, QWidget *parent) :
             this, &MainWindow::onCheckUpdate);
     connect(ui->actionGuiLog, &QAction::triggered,
             this, &MainWindow::onGuiLog);
-    connect(ui->actionTrojanLog, &QAction::triggered,
-            this, &MainWindow::onTrojanLog);
+    connect(ui->actionCoreLog, &QAction::triggered,
+            this, &MainWindow::onCoreLog);
     connect(ui->actionReportBug, &QAction::triggered,
             this, &MainWindow::onReportBug);
     connect(ui->actionShowFilterBar, &QAction::toggled,
@@ -208,6 +219,8 @@ MainWindow::MainWindow(ConfigHelper *confHelper, QWidget *parent) :
     ui->connectionView->horizontalHeader()->restoreGeometry(configHelper->getTableGeometry());
     ui->connectionView->horizontalHeader()->restoreState(configHelper->getTableState());
 
+    if (configHelper->isAutoUpdateSubscribes())
+        sbMgr->updateAllSubscribesWithThread();
 }
 
 MainWindow::~MainWindow()
@@ -228,7 +241,7 @@ MainWindow::~MainWindow()
 }
 
 const QUrl MainWindow::issueUrl =
-        QUrl("https://github.com/TheWanderingCoel/Trojan-Qt5/issues");
+        QUrl("https://t.me/TrojanQt5");
 
 void MainWindow::startAutoStartConnections()
 {
@@ -267,6 +280,32 @@ void MainWindow::onToggleConnection(bool status)
     }
 }
 
+void MainWindow::onHandleDataFromUrlScheme(const QString &data)
+{
+    if (data.startsWith("ss://") ||
+        data.startsWith("ssr://") ||
+        data.startsWith("vmess://") ||
+        data.startsWith("trojan://")) {
+        if (GeneralValidator::validateSS(data) || GeneralValidator::validateSSR(data) || GeneralValidator::validateVmess(data) ||GeneralValidator::validateTrojan(data)) {
+            Connection *newCon = new Connection(data, this);
+            model->appendConnection(newCon);
+            configHelper->save(*model);
+         }
+    } else if (data.startsWith("trojan-qt5://")) {
+        QString splitData = data.split("add-subscribe?url=")[1];
+        QString url = QUrl::fromPercentEncoding(splitData.toUtf8().data()).toUtf8().data();
+        QList<TQSubscribe> subscribes = configHelper->readSubscribes();
+        TQSubscribe subscribe;
+        subscribe.url = url;
+        subscribes.append(subscribe);
+        configHelper->saveSubscribes(subscribes);
+        sbMgr->setUseProxy(false);
+        sbMgr->updateAllSubscribesWithThread();
+    } else if (data.startsWith("felix://")) {
+        QMessageBox::information(this, "Aku seneng Felix Wang", "I love you Felix Wang\nCoel 2019-2020");
+    }
+}
+
 void MainWindow::onAddServerFromSystemTray(QString type)
 {
     if (type == "manually")
@@ -277,9 +316,9 @@ void MainWindow::onAddServerFromSystemTray(QString type)
         onAddFromPasteBoardURI();
 }
 
-void MainWindow::onAddURIFromSubscribe(QString uri)
+void MainWindow::onAddURIFromSubscribe(TQProfile profile)
 {
-    Connection *newCon = new Connection(uri, this);
+    Connection *newCon = new Connection(profile, this);
 
     bool dupResult = model->isDuplicated(newCon);
     bool existResult = model->isExisted(newCon);
@@ -367,7 +406,10 @@ void MainWindow::onSaveManually()
 void MainWindow::onAddManually(QString type)
 {
     Connection *newCon = new Connection;
-    newProfile(type, newCon);
+    TQProfile p;
+    p.type = type;
+    newCon->setProfile(p);
+    newProfile(newCon);
 }
 
 void MainWindow::onAddScreenQRCode()
@@ -382,7 +424,7 @@ void MainWindow::onAddScreenQRCode()
         Logger::warning("Can't find any QR code image that contains valid URI on your screen");
     } else {
         Connection *newCon = new Connection(uri, this);
-        newProfile("trojan", newCon);
+        newProfile(newCon);
     }
 }
 
@@ -415,7 +457,7 @@ void MainWindow::onAddQRCodeFile()
             Logger::warning("Can't find any QR code image that contains valid URI on your screen");
         } else {
             Connection *newCon = new Connection(uri, this);
-            newProfile("trojan", newCon);
+            newProfile(newCon);
         }
     }
 }
@@ -427,7 +469,7 @@ void MainWindow::onAddFromURI()
             inputDlg, &URIInputDialog::deleteLater);
     connect(inputDlg, &URIInputDialog::acceptedURI, [&](const QString &uri){
             Connection *newCon = new Connection(uri, this);
-            newProfile(newCon->getProfile().type, newCon);
+            newProfile(newCon);
     });
     inputDlg->exec();
 }
@@ -437,7 +479,7 @@ void MainWindow::onAddFromPasteBoardURI()
     QClipboard *board = QApplication::clipboard();
     QString str = board->text();
     for (QString uri: str.split("\\r\\n")) {
-        if (GeneralValidator::validateSSR(uri) || GeneralValidator::validateTrojan(uri)) {
+        if (GeneralValidator::validateSS(uri) || GeneralValidator::validateSSR(uri) || GeneralValidator::validateVmess(uri) ||GeneralValidator::validateTrojan(uri)) {
             Connection *newCon = new Connection(uri, this);
             model->appendConnection(newCon);
             configHelper->save(*model);
@@ -452,7 +494,7 @@ void MainWindow::onAddFromConfigJSON()
     if (!file.isNull()) {
         Connection *con = configHelper->configJsonToConnection(file);
         if (con) {
-            newProfile("trojan", con);
+            newProfile(con);
         }
     }
 }
@@ -482,17 +524,11 @@ void MainWindow::onEdit()
 
 void MainWindow::onShare()
 {
-    QByteArray uri = "";
     Connection *con = model->getItem(
                 proxyModel->mapToSource(ui->connectionView->currentIndex()).
                 row())->getConnection();
 
-    if (con->getProfile().type == "ss")
-        uri = con->getURI("ss");
-    else if (con->getProfile().type == "ssr")
-        uri = con->getURI("ssr");
-    else if (con->getProfile().type == "trojan")
-        uri = con->getURI("trojan");
+    QByteArray uri = con->getURI(con->getProfile().type);
 
     ShareDialog *shareDlg = new ShareDialog(uri, this);
     connect(shareDlg, &ShareDialog::finished,
@@ -560,6 +596,13 @@ void MainWindow::onConnectionStatusChanged(const int row, const bool running)
     }
 }
 
+void MainWindow::onClearTrafficStats()
+{
+    qDebug()<<ui->connectionView->selectionModel()->selectedIndexes();
+    model->getItem(proxyModel->mapToSource(ui->connectionView->currentIndex()).
+                   row())->clearTraffic();
+}
+
 void MainWindow::onLatencyTest()
 {
     model->getItem(proxyModel->mapToSource(ui->connectionView->currentIndex()).
@@ -611,18 +654,24 @@ void MainWindow::onUserRuleSettings()
     userRule->exec();
 }
 
-void MainWindow::newProfile(QString type, Connection *newCon)
+void MainWindow::newProfile(Connection *newCon)
 {
     QDialog *editDlg = new QDialog(this);
-    if (type == "ss") {
+    if (newCon->getProfile().type == "ss") {
         editDlg = new SSEditDialog(newCon, this);
         connect(editDlg, &SSEditDialog::finished, editDlg, &SSREditDialog::deleteLater);
-    } else if (type == "ssr") {
+    } else if (newCon->getProfile().type == "ssr") {
         editDlg = new SSREditDialog(newCon, this);
         connect(editDlg, &SSREditDialog::finished, editDlg, &SSREditDialog::deleteLater);
-    } else if (type == "trojan") {
+    } else if (newCon->getProfile().type == "vmess") {
+        editDlg = new VmessEditDialog(newCon, this);
+        connect(editDlg, &VmessEditDialog::finished, editDlg, &VmessEditDialog::deleteLater);
+    } else if (newCon->getProfile().type == "trojan") {
         editDlg = new TrojanEditDialog(newCon, this);
         connect(editDlg, &TrojanEditDialog::finished, editDlg, &TrojanEditDialog::deleteLater);
+    } else if (newCon->getProfile().type == "snell") {
+        editDlg = new SnellEditDialog(newCon, this);
+        connect(editDlg, &SnellEditDialog::finished, editDlg, &SnellEditDialog::deleteLater);
     }
 
     if (editDlg->exec()) {//accepted
@@ -641,13 +690,18 @@ void MainWindow::editRow(int row)
     if (con->getProfile().type == "ss") {
         editDlg = new SSEditDialog(con, this);
         connect(editDlg, &SSEditDialog::finished, editDlg, &TrojanEditDialog::deleteLater);
-    }
-    else if (con->getProfile().type == "ssr") {
+    } else if (con->getProfile().type == "ssr") {
         editDlg = new SSREditDialog(con, this);
         connect(editDlg, &SSREditDialog::finished, editDlg, &TrojanEditDialog::deleteLater);
+    } else if (con->getProfile().type == "vmess") {
+        editDlg = new VmessEditDialog(con, this);
+        connect(editDlg, &VmessEditDialog::finished, editDlg, &VmessEditDialog::deleteLater);
     } else if (con->getProfile().type == "trojan") {
         editDlg = new TrojanEditDialog(con, this);
         connect(editDlg, &TrojanEditDialog::finished, editDlg, &TrojanEditDialog::deleteLater);
+    } else if (con->getProfile().type == "snell") {
+        editDlg = new SnellEditDialog(con, this);
+        connect(editDlg, &SnellEditDialog::finished, editDlg, &SnellEditDialog::deleteLater);
     }
 
     if (editDlg->exec()) {
@@ -695,15 +749,13 @@ void MainWindow::onAbout()
 
 void MainWindow::onGuiLog()
 {
-    QDir path = QStandardPaths::writableLocation(QStandardPaths::HomeLocation) + "/Library/Logs/Trojan-Qt5";
-    QString guiLog = path.path() + "/gui.log";
+    QString guiLog = Utils::getLogDir() + "/gui.log";
     QDesktopServices::openUrl(QUrl::fromLocalFile(guiLog));
 }
 
-void MainWindow::onTrojanLog()
+void MainWindow::onCoreLog()
 {
-    QDir path = QStandardPaths::writableLocation(QStandardPaths::HomeLocation) + "/Library/Logs/Trojan-Qt5";
-    QString trojanLog = path.path() + "/trojan.log";
+    QString trojanLog = Utils::getLogDir() + "/core.log";
     QDesktopServices::openUrl(QUrl::fromLocalFile(trojanLog));
 }
 
@@ -737,7 +789,7 @@ void MainWindow::onQRCodeCapturerResultFound(const QString &uri)
     disconnect(capturer, &QRCodeCapturer::qrCodeFound,
                this, &MainWindow::onQRCodeCapturerResultFound);
     Connection *newCon = new Connection(uri, this);
-    newProfile("trojan", newCon);
+    newProfile(newCon);
 }
 
 void MainWindow::onCheckUpdate()
@@ -776,9 +828,9 @@ void MainWindow::closeEvent(QCloseEvent *e)
 void MainWindow::onStatusAvailable(const quint64 &u, const quint64 &d)
 {
     ui->statusbar->showMessage(QString("  SOCKS5 127.0.0.1:%1                                       HTTP 127.0.0.1:%2                                       PAC 127.0.0.1:%3                                       SPEED Up: %4 | Down: %5")
-            .arg(configHelper->getSocks5Port())
-            .arg(configHelper->getHttpPort())
-            .arg(configHelper->getPACPort())
+            .arg(configHelper->getInboundSettings()["socks5LocalPort"].toInt())
+            .arg(configHelper->getInboundSettings()["httpLocalPort"].toInt())
+            .arg(configHelper->getInboundSettings()["pacLocalPort"].toInt())
             .arg(bytesConvertor(u))
             .arg(bytesConvertor(d)));
 }
@@ -827,7 +879,11 @@ void MainWindow::setupActionIcon()
                                 QIcon::fromTheme("accessories-text-editor")));
     ui->actionManuallySSR->setIcon(QIcon::fromTheme("edit-guides",
                                 QIcon::fromTheme("accessories-text-editor")));
+    ui->actionManuallyVmess->setIcon(QIcon::fromTheme("edit-guides",
+                                QIcon::fromTheme("accessories-text-editor")));
     ui->actionManuallyTrojan->setIcon(QIcon::fromTheme("edit-guides",
+                                QIcon::fromTheme("accessories-text-editor")));
+    ui->actionManuallySnell->setIcon(QIcon::fromTheme("edit-guides",
                                 QIcon::fromTheme("accessories-text-editor")));
     ui->actionURI->setIcon(QIcon::fromTheme("text-field",
                            QIcon::fromTheme("insert-link")));
@@ -842,7 +898,7 @@ void MainWindow::setupActionIcon()
                                          QIcon::fromTheme("preferences-desktop")));
     ui->actionGuiLog->setIcon(QIcon::fromTheme("view-list-text",
                               QIcon::fromTheme("text-x-preview")));
-    ui->actionTrojanLog->setIcon(QIcon::fromTheme("view-list-text",
+    ui->actionCoreLog->setIcon(QIcon::fromTheme("view-list-text",
                                  QIcon::fromTheme("text-x-preview")));
     ui->actionReportBug->setIcon(QIcon::fromTheme("tools-report-bug",
                                  QIcon::fromTheme("help-faq")));
@@ -856,7 +912,7 @@ bool MainWindow::isInstanceRunning() const
 void MainWindow::initSparkle()
 {
 #if defined (Q_OS_WIN)
-    win_sparkle_set_appcast_url("https://raw.githubusercontent.com/TheWanderingCoel/Trojan-Qt5/master/resources/Appcast_Windows.xml");
+    win_sparkle_set_appcast_url("https://raw.githubusercontent.com/Trojan-Qt5/Trojan-Qt5/master/resources/Appcast_Windows.xml");
     win_sparkle_set_app_details(reinterpret_cast<const wchar_t *>(QCoreApplication::organizationName().utf16()),
                                 reinterpret_cast<const wchar_t *>(QCoreApplication::applicationName().utf16()),
                                 reinterpret_cast<const wchar_t *>(QStringLiteral(APP_VERSION).utf16()));
@@ -864,18 +920,17 @@ void MainWindow::initSparkle()
     win_sparkle_init();
 #elif defined (Q_OS_MAC)
     CocoaInitializer initializer;
-    updater = new SparkleAutoUpdater("https://raw.githubusercontent.com/TheWanderingCoel/Trojan-Qt5/master/resources/Appcast_macOS.xml");
+    updater = new SparkleAutoUpdater("https://raw.githubusercontent.com/Trojan-Qt5/Trojan-Qt5/master/resources/Appcast_macOS.xml");
 #endif
 }
 
 void MainWindow::initLog()
 {
-    QDir path = QStandardPaths::writableLocation(QStandardPaths::HomeLocation) + "/Library/Logs/Trojan-Qt5";
+    QDir path = Utils::getLogDir();
     if (!path.exists()) {
         path.mkpath(".");
     }
     QString guiLog = path.path() + "/gui.log";
-    QString trojanLog = path.path() + "/trojan.log";
 
     //Initialize the gui's log.
     Logger::init(guiLog);
@@ -889,9 +944,8 @@ void MainWindow::initSingleInstance()
     socket.connectToServer(serverName);
     if (socket.waitForConnected(500)) {
         instanceRunning = true;
-        if (configHelper->isOnlyOneInstance()) {
-            qWarning() << "An instance of trojan-qt5 is already running";
-            Logger::warning("An instance of trojan-qt5 is already running");
+        if (configHelper->getGeneralSettings()["onlyOneInstace"].toBool()) {
+            Logger::warning("[Instance] An instance of trojan-qt5 is already running");
         }
         QByteArray username = qgetenv("USER");
         if (username.isEmpty()) {
@@ -936,7 +990,7 @@ void MainWindow::onSingleInstanceConnect()
             show();
         } else {
             qWarning("Another user is trying to run another instance of trojan-qt5");
-            Logger::warning("Another user is trying to run another instance of trojan-qt5");
+            Logger::warning("[Instance] Another user is trying to run another instance of trojan-qt5");
         }
     }
     socket->deleteLater();

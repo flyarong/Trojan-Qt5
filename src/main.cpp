@@ -12,8 +12,13 @@
 #include "resourcehelper.h"
 #include "logger.h"
 #include "midman.h"
+#include "eventfilter.h"
 
 #include "LetsMove/PFMoveApplication.h"
+
+#if defined (Q_OS_WIN)
+#include "urlschemeregister.h"
+#endif
 
 #ifdef Q_OS_MAC
 #include <objc/objc.h>
@@ -79,15 +84,15 @@ void setupDockClickHandler() {
         SEL shouldHandle = sel_registerName("applicationShouldHandleReopen:hasVisibleWindows:");
         if (class_getInstanceMethod(delClass, shouldHandle)) {
             if (class_replaceMethod(delClass, shouldHandle, (IMP)dockClickHandler, "B@:"))
-                Logger::debug("Registered dock click handler (replaced original method");
+                return;
             else
-                Logger::warning("Failed to replace method for dock click handler");
+                Logger::warning("[Dock] Failed to replace method for dock click handler");
         }
         else {
             if (class_addMethod(delClass, shouldHandle, (IMP)dockClickHandler,"B@:"))
-                Logger::debug("Registered dock click handler");
+                return;
             else
-                Logger::warning("Failed to register dock click handler");
+                Logger::warning("[Dock] Failed to register dock click handler");
         }
     }
 }
@@ -113,7 +118,10 @@ int main(int argc, char *argv[])
     qRegisterMetaTypeStreamOperators<TQProfile>("TQProfile");
     qRegisterMetaTypeStreamOperators<TQSubscribe>("TQSubscribe");
 
-    QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+    QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+    QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
+#endif
 
     QApplication a(argc, argv);
     setupApplication(a);
@@ -121,12 +129,9 @@ int main(int argc, char *argv[])
     QCommandLineParser parser;
     parser.addHelpOption();
     parser.addVersionOption();
-    QCommandLineOption noInstanceCheckOption("b",
-                                        "bypass one instance check.");
     QCommandLineOption configFileOption("c",
                                         "specify configuration file.",
                                         "config.ini");
-    parser.addOption(noInstanceCheckOption);
     parser.addOption(configFileOption);
     parser.process(a);
 
@@ -146,19 +151,26 @@ int main(int argc, char *argv[])
     ConfigHelper conf(configFile);
 
     // setup the theme here
-    a.setStyle(conf.getTheme());
+    a.setStyle(conf.getGeneralSettings()["theme"].toString());
+
+#if defined (Q_OS_WIN)
+    UrlSchemeRegister *reg;
+    if (!reg->CheckAllUrlScheme())
+        reg->RegisterAllUrlScheme();
+#endif
 
     MainWindow w(&conf);
     mainWindow = &w;
 
+    a.installEventFilter(new EventFilter(&w));
+
+    if (conf.getGeneralSettings()["onlyOneInstace"].toBool() && w.isInstanceRunning()) {
+        return -1;
+    }
+
 #if defined (Q_OS_MAC)
     setupDockClickHandler();
 #endif
-
-    bool bypassOneInstance = parser.isSet(noInstanceCheckOption);
-    if (!bypassOneInstance)
-        if (conf.isOnlyOneInstance() && w.isInstanceRunning())
-            return -1;
 
     //let's start PAC Server
     PACServer pacServer;
@@ -167,7 +179,7 @@ int main(int argc, char *argv[])
     //start all servers which were configured to start at startup
     w.startAutoStartConnections();
 
-    if (!conf.isHideWindowOnStartup()) {
+    if (!conf.getGeneralSettings()["hideWindowOnStartup"].toBool()) {
         w.show();
     }
 

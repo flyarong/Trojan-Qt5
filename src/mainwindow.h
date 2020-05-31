@@ -54,6 +54,10 @@ public:
     void onToggleServerFromSystemTray(TQProfile profile);
     bool isInstanceRunning() const;
 
+public slots:
+    void onHandleDataFromUrlScheme(const QString &);
+    void onAddURIFromSubscribe(TQProfile);
+
 private:
     Ui::MainWindow *ui;
 
@@ -72,7 +76,7 @@ private:
     void initSparkle();
     void initSingleInstance();
 
-    void newProfile(QString type, Connection *newCon);
+    void newProfile(Connection *newCon);
     void editRow(int row);
     void blockChildrenSignals(bool);
     void checkCurrentIndex();
@@ -82,7 +86,6 @@ private:
 
 private slots:
     void onToggleConnection(bool);
-    void onAddURIFromSubscribe(QString);
     void onImportGuiJson();
     void onImportConfigYaml();
     void onExportGuiJson();
@@ -105,6 +108,7 @@ private slots:
     void onDisconnect();
     void onConnectionStatusChanged(const int row, const bool running);
     void onLatencyTest();
+    void onClearTrafficStats();
     void onMoveUp();
     void onMoveDown();
     void onGeneralSettings();
@@ -112,7 +116,7 @@ private slots:
     void checkCurrentIndex(const QModelIndex &index);
     void onAbout();
     void onGuiLog();
-    void onTrojanLog();
+    void onCoreLog();
     void onReportBug();
     void onCustomContextMenuRequested(const QPoint &pos);
     void onFilterToggled(bool);

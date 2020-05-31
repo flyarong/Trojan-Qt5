@@ -23,7 +23,7 @@ greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
 QT_CONFIG -= no-pkg-config
 
-RC_ICONS = $$PWD/resources/icons/trojan-qt5_new.ico
+RC_ICONS = $$PWD/resources/icons/trojan-qt5_new_white.ico
 ICON = $$PWD/resources/icons/trojan-qt5_new.icns
 
 TARGET = trojan-qt5
@@ -44,7 +44,7 @@ CONFIG += link_pkgconfig
 #DEFINES += QT_DEPRECATED_WARNINGS
 
 # Define App Version
-DEFINES += "APP_VERSION=\"\\\"1.0.0\\\"\""
+DEFINES += "APP_VERSION=\"\\\"1.1.4\\\"\""
 
 # Set Build Info String
 _TROJAN_QT5_BUILD_INFO_STR_=$$getenv(_TROJAN_QT5_BUILD_INFO_)
@@ -55,16 +55,6 @@ DEFINES += _TROJAN_QT5_BUILD_INFO_STR_=\"\\\"$${_TROJAN_QT5_BUILD_INFO_STR_}\\\"
 
 # QHttpServer
 DEFINES += QHTTPSERVER_EXPORT
-
-# Trojan
-#DEFINES += ENABLE_MYSQL
-DEFINES += TCP_FASTOPEN
-#DEFINES += TCP_FASTOPEN_CONNECT
-DEFINES += ENABLE_SSL_KEYLOG
-#DEFINES += ENABLE_NAT
-DEFINES += ENABLE_TLS13_CIPHERSUITES
-#DEFINES += ENABLE_REUSE_PORT
-DEFINES += TROJAN_USE_EXTERNAL_LOGGER
 
 # You can also make your code fail to compile if it uses deprecated APIs.
 # In order to do so, uncomment the following line.
@@ -83,14 +73,25 @@ include($$PWD/src/shadowsocksr-uvw/Shadowsocksr-uvw.pri)
 # QHttpServer
 include($$PWD/3rd/qhttpserver/qhttpserver.pri)
 
+win32:CONFIG(debug, debug|release) {
+    LIBS += -LC:\TQLibraries\Grpc\debug\lib -lgrpc -lgrpc++ -llibprotobufd -lgpr -lzlibd -lupb -lcares -labsl_strings -labsl_base -labsl_throw_delegate -laddress_sorting
+    LIBS += $$PWD\3rd\yaml-cpp\Debug\yaml-cppd.lib
+}
+
+else:win32:CONFIG(release, debug|release) {
+    LIBS += -LC:\TQLibraries\Grpc\lib -lgrpc -lgrpc++ -llibprotobuf -lgpr -lzlib -lupb -lcares -labsl_strings -labsl_base -labsl_throw_delegate -laddress_sorting
+    LIBS += $$PWD\3rd\yaml-cpp\Release\yaml-cpp.lib
+}
+
 win32 {
     DEFINES += _WIN32_WINNT=0x600
     SOURCES += \
         src/sysproxy/windows.c \
-        src/statusnotifier.cpp
+        src/statusnotifier.cpp \
+        src/urlschemeregister.cpp
     HEADERS += \
-        src/sysproxy/windows.h
-    INCLUDEPATH += $$PWD\src\trojan\src
+        src/sysproxy/windows.h \
+        src/urlschemeregister.h
     INCLUDEPATH += C:\TQLibraries\ZBar\include
     INCLUDEPATH += C:\TQLibraries\OpenSSL-Win32\include
     INCLUDEPATH += C:\TQLibraries\QREncode\include
@@ -104,12 +105,12 @@ win32 {
     LIBS += -LC:\TQLibraries\WinSparkle\lib -lWinSparkle
     LIBS += -LC:\TQLibraries\Libsodium\lib -llibsodium
     LIBS += -LC:\TQLibraries\Libuv\lib -llibuv
-    LIBS += -LC:\TQLibraries\Grpc\lib -lgrpc -lgrpc_unsecure -lgrpc++ -lgrpc++_unsecure -llibprotobuf -lgpr -lzlib -lupb -lcares -labsl_strings -labsl_base -labsl_throw_delegate -laddress_sorting
     LIBS += -lwsock32 -lws2_32 -luserenv -liphlpapi
     LIBS += -lCrypt32 -lkernel32 -lpsapi -luser32
     DEFINES += WIN32_LEAN_AND_MEAN
-    LIBS += $$PWD\3rd\yaml-cpp\Release\yaml-cpp.lib
-    LIBS += $$PWD\3rd\trojan-qt5-libs\trojan-qt5-libs.lib
+    LIBS += $$PWD\3rd\trojan-qt5-core\trojan-qt5-core.lib
+    QMAKE_CXXFLAGS_WARN_ON -= -w34100
+    QMAKE_CXXFLAGS += -wd4251 -wd4996
     # Otherwise lupdate will not work
     TR_EXCLUDE += C:\TQLibraries\boost_1_72_0\*
 }
@@ -125,6 +126,7 @@ mac {
     INCLUDEPATH += /usr/local/opt/openssl@1.1/include
     LIBS += -L/usr/local/opt/zlib/lib -lz
     LIBS += -L/usr/local/opt/openssl@1.1/lib -lssl -lcrypto
+    LIBS += -L/usr/local/opt/grpc/lib -lupb -laddress_sorting
     LIBS += -framework Security -framework Cocoa
     # For Sparkle Usage
     SOURCES += \
@@ -147,17 +149,18 @@ mac {
     QMAKE_INFO_PLIST = resources/Info.plist
     # Otherwise lupdate will not work
     TR_EXCLUDE += /usr/local/opt/boost/*
+    # copy .dat files
+    APP_QML_FILES.files = $$PWD/resources/dat/geoip.dat $$PWD/resources/dat/geosite.dat
+    APP_QML_FILES.path = Contents/MacOS
+    QMAKE_BUNDLE_DATA += APP_QML_FILES
 }
 
 unix:!mac {
     QT += dbus
+    PKGCONFIG += openssl
     SOURCES += \
         src/statusnotifier.cpp
-    INCLUDEPATH += $$PWD/src/trojan/src
-    INCLUDEPATH += /usr/local/openssl/include
-    INCLUDEPATH += /usr/local/zlib/include
-    LIBS += -L/usr/local/openssl/lib -lcrypto -lssl
-    LIBS += -L/usr/local/zlib/lib -lz
+    LIBS += -lz
     # Otherwise lupdate will not work
     TR_EXCLUDE += /usr/local/boost/*
 
@@ -169,22 +172,22 @@ unix:!mac {
     shortcutfiles.files = src/trojan-qt5.desktop
     shortcutfiles.path = $$PREFIX/share/applications/
     data.files += resources/icons/trojan-qt5.png
-    data.path = $$PREFIX/share/hicolor/512x512/
+    data.path = $$PREFIX/share/icons/hicolor/512x512/apps/
 
     INSTALLS += shortcutfiles
     INSTALLS += data
 }
 
 unix {
-    PKGCONFIG += zbar libqrencode libuv libsodium grpc grpc_unsecure grpc++ grpc++_unsecure protobuf
-    LIBS += $$PWD/3rd/yaml-cpp/libyaml-cpp.a
-    LIBS += $$PWD/3rd/trojan-qt5-libs/trojan-qt5-libs.a
+    PKGCONFIG += zbar libqrencode libuv libsodium grpc grpc++ protobuf gpr yaml-cpp
+    LIBS += $$PWD/3rd/trojan-qt5-core/trojan-qt5-core.a
 }
 
 !isEmpty(target.path): INSTALLS += target
 
 SOURCES += \
     src/connectionsortfilterproxymodel.cpp \
+    src/eventfilter.cpp \
     src/haproxythread.cpp \
     src/logger.cpp \
     src/midman.cpp \
@@ -200,6 +203,7 @@ SOURCES += \
     src/connectiontablemodel.cpp \
     src/speedplotview.cpp \
     src/speedwidget.cpp \
+    src/ssthread.cpp \
     src/trojaneditdialog.cpp \
     src/ip4validator.cpp \
     src/main.cpp \
@@ -215,6 +219,7 @@ SOURCES += \
     src/tqsubscribe.cpp \
     src/generalvalidator.cpp \
     src/trojangoapi.cpp \
+    src/trojanthread.cpp \
     src/tun2socksthread.cpp \
     src/urihelper.cpp \
     src/uriinputdialog.cpp \
@@ -229,10 +234,16 @@ SOURCES += \
     src/clickablelabel.cpp \
     src/sseditdialog.cpp \
     src/snelleditdialog.cpp \
-    src/vmesseditdialog.cpp
+    src/v2rayapi.cpp \
+    src/v2raythread.cpp \
+    src/vmesseditdialog.cpp \
+    src/ssgoapi.cpp \
+    src/routewidget.cpp \
+    src/streamwidget.cpp
 
 HEADERS += \
     src/connectionsortfilterproxymodel.h \
+    src/eventfilter.h \
     src/haproxythread.h \
     src/logger.h \
     src/midman.h \
@@ -248,6 +259,7 @@ HEADERS += \
     src/connectiontablemodel.h \
     src/speedplotview.hpp \
     src/speedwidget.hpp \
+    src/ssthread.h \
     src/trojaneditdialog.h \
     src/ip4validator.h \
     src/mainwindow.h \
@@ -263,6 +275,7 @@ HEADERS += \
     src/tqsubscribe.h \
     src/generalvalidator.h \
     src/trojangoapi.h \
+    src/trojanthread.h \
     src/tun2socksthread.h \
     src/urihelper.h \
     src/uriinputdialog.h \
@@ -270,7 +283,6 @@ HEADERS += \
     src/subscribedialog.h \
     src/httpproxy.h \
     src/socketstream.h \
-    3rd/trojan-qt5-libs/trojan-qt5-libs.h \
     src/ssreditdialog.h \
     src/utils.h \
     src/speedplot.h \
@@ -278,16 +290,23 @@ HEADERS += \
     src/clickablelabel.h \
     src/sseditdialog.h \
     src/snelleditdialog.h \
-    src/vmesseditdialog.h
+    src/v2rayapi.h \
+    src/v2raythread.h \
+    src/vmesseditdialog.h \
+    src/ssgoapi.h \
+    src/routewidget.h \
+    src/streamwidget.h
 
 FORMS += \
     ui/aboutdialog.ui \
+    ui/routewidget.ui \
     ui/settingsdialog.ui \
     ui/mainwindow.ui \
     ui/sharedialog.ui \
     ui/speedplot.ui \
     ui/sseditdialog.ui \
     ui/ssreditdialog.ui \
+    ui/streamwidget.ui \
     ui/subscribedialog.ui \
     ui/trojaneditdialog.ui \
     ui/uriinputdialog.ui \
@@ -300,19 +319,21 @@ TRANSLATIONS += \
     resources/i18n/trojan-qt5_zh_TW.ts \
     resources/i18n/trojan-qt5_zh_SG.ts
 
-PROTOS = $$PWD/src/trojangoapi.proto
+PROTOS += \
+    $$PWD/src/trojangoapi.proto \
+    $$PWD/src/ssgoapi.proto \
+    $$PWD/src/v2rayapi.proto
 
 include($$PWD/src/protobuf.pri)
 include($$PWD/src/grpc.pri)
-
-INSTALLS += headers
 
 headers.path = /usr/include
 headers.CONFIG = no_check_exist
 headers.files = $${PROTOBUF_HEADERS}
 
-INCLUDEPATH += $$PWD/3rd/yaml-cpp/include
 INCLUDEPATH += $$PWD/src
+INCLUDEPATH += $$PWD/3rd/trojan-qt5-core
+INCLUDEPATH += $$PWD/3rd/yaml-cpp/include
 
 # Default rules for deployment.
 qnx: target.path = /tmp/$${TARGET}/bin

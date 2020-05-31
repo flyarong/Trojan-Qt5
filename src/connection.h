@@ -25,11 +25,16 @@
 #include <memory>
 #include "httpproxy.h"
 #include "pachelper.h"
+#include "ssthread.h"
 #include "SSRThread.hpp"
 #include "tun2socksthread.h"
+#include "v2raythread.h"
+#include "trojanthread.h"
 #include "systemproxyhelper.h"
 #include "tqprofile.h"
 #include "routetablehelper.h"
+#include "ssgoapi.h"
+#include "v2rayapi.h"
 #include "trojangoapi.h"
 
 class Connection : public QObject
@@ -42,7 +47,7 @@ public:
     ~Connection();
 
     Connection(const Connection&) = delete;
-    Connection(Connection&&) = default;
+    //Connection(Connection&&) = default;
 
     const TQProfile &getProfile() const;
     const QString &getName() const;
@@ -74,10 +79,16 @@ public slots:
 private:
     QString configFile;
     HttpProxy *http;
+    SSThread *ss;
     std::unique_ptr<SSRThread> ssr;
     Tun2socksThread *tun2socks;
+    V2rayThread *v2ray;
+    TrojanThread *trojan;
     RouteTableHelper *rhelper;
+    SSGoAPI *ssGoAPI;
+    V2rayAPI *v2rayAPI;
     TrojanGoAPI *trojanGoAPI;
+
     TQProfile profile;
     bool running;
 
@@ -85,7 +96,9 @@ private:
 
     friend class SSEditDialog;
     friend class SSREditDialog;
+    friend class VmessEditDialog;
     friend class TrojanEditDialog;
+    friend class SnellEditDialog;
     friend class ConfigHelper;
     friend class StatusDialog;
     friend class ConnectionItem;

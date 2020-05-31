@@ -28,7 +28,7 @@ QString URIHelper::decodeImage(const QImage &img)
 
     //use zbar to decode the QR code
     zbar::ImageScanner scanner;
-    zbar::Image image(gimg.bytesPerLine(), gimg.height(), "Y800", gimg.bits(), gimg.byteCount());
+    zbar::Image image(gimg.bytesPerLine(), gimg.height(), "Y800", gimg.bits(), gimg.sizeInBytes());
     scanner.scan(image);
     zbar::SymbolSet res_set = scanner.get_results();
     for (zbar::SymbolIterator it = res_set.symbol_begin(); it != res_set.symbol_end(); ++it) {
@@ -39,7 +39,11 @@ QString URIHelper::decodeImage(const QImage &img)
              * therefore, please only leave one QR code for the sake of accuracy
              */
             QString result = QString::fromStdString(it->get_data());
-            if (result.left(6).compare("ssr://", Qt::CaseInsensitive) == 0)
+            if (result.left(5).compare("ss://", Qt::CaseInsensitive) == 0)
+                uri = result;
+            else if (result.left(6).compare("ssr://", Qt::CaseInsensitive) == 0)
+                uri = result;
+            else if (result.left(8).compare("vmess://", Qt::CaseInsensitive) == 0)
                 uri = result;
             else if (result.left(9).compare("trojan://", Qt::CaseInsensitive) == 0)
                 uri = result;

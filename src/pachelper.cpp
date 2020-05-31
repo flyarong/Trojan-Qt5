@@ -12,14 +12,15 @@
 
 #include "confighelper.h"
 #include "userrules.h"
+#include "utils.h"
 
 PACHelper::PACHelper()
 {
 #ifdef Q_OS_WIN
-    configDir = QDir::toNativeSeparators(QCoreApplication::applicationDirPath()) + "\\pac";
+    configDir = QDir::toNativeSeparators(qApp->applicationDirPath()) + "\\pac";
     configFile = QCoreApplication::applicationDirPath() + "/config.ini";
 #else
-    configDir = QDir::homePath() + "/.config/trojan-qt5/pac";
+    configDir.setPath(QDir::homePath() + "/.config/trojan-qt5/pac");
     configFile = QDir::homePath() + "/.config/trojan-qt5/config.ini";
 #endif
 
@@ -43,7 +44,7 @@ PACHelper::PACHelper()
     QFile::copy(":/pac/trojan_white_advanced.pac", configDir.path() + "/trojan_white_advanced.pac");
     QFile::copy(":/pac/trojan_white_r.pac", configDir.path() + "/trojan_white_r.pac");
     QFile::copy(":/pac/trojan_cnip.pac", configDir.path() +"/trojan_cnip.pac");
-    QFile::setPermissions(userRule, QFile::WriteOwner | QFile::ReadOwner | QFile::ReadGroup | QFile::ReadOther);
+    Utils::setPermisison(userRule);
 
     //Initalize when first startup
     if (!QFile::exists(pac))
@@ -62,7 +63,7 @@ QByteArray PACHelper::request(QString url)
     QNetworkProxy proxy;
     proxy.setType(QNetworkProxy::Socks5Proxy);
     proxy.setHostName("127.0.0.1");
-    proxy.setPort(conf->getSocks5Port());
+    proxy.setPort(conf->getInboundSettings()["socks5LocalPort"].toInt());
     manager->setProxy(proxy);
     QNetworkReply* reply = manager->sendCustomRequest(request, "GET", "");
     QEventLoop loop;
@@ -75,7 +76,7 @@ void PACHelper::copyPACUrl()
 {
     ConfigHelper *conf = new ConfigHelper(configFile);
     QClipboard *board = QApplication::clipboard();
-    board->setText(QString("http://127.0.0.1:%1/proxy.pac").arg(conf->getPACPort()));
+    board->setText(QString("http://127.0.0.1:%1/proxy.pac").arg(conf->getInboundSettings()["pacLocalPort"].toInt()));
 }
 
 void PACHelper::editLocalPACFile()
@@ -96,16 +97,16 @@ QJsonDocument PACHelper::loadRules()
     ConfigHelper *conf = new ConfigHelper(configFile);
     QStringList list;
 
-    if (conf->getGfwlistUrl() == 0) {
+    if (conf->getSubscribeSettings()["gfwListUrl"].toInt() == 0) {
         list = QString::fromUtf8(QByteArray::fromBase64(request("https://raw.githubusercontent.com/gfwlist/gfwlist/master/gfwlist.txt"))).split("\n");
     }
-    else if (conf->getGfwlistUrl() == 1) {
+    else if (conf->getSubscribeSettings()["gfwListUrl"].toInt() == 1) {
         list = QString::fromUtf8(QByteArray::fromBase64(request("https://raw.githubusercontent.com/Loukky/gfwlist-by-loukky/master/gfwlist.txt"))).split("\n");
     }
-    else if (conf->getGfwlistUrl() == 2) {
+    else if (conf->getSubscribeSettings()["gfwListUrl"].toInt() == 2) {
         QFile file(gfwList);
         file.open(QIODevice::ReadOnly);
-        QStringList list = QString::fromUtf8(QByteArray::fromBase64(file.readAll())).split("\n");
+        list = QString::fromUtf8(QByteArray::fromBase64(file.readAll())).split("\n");
         file.close();
     }
     QStringList filedata;
@@ -170,15 +171,15 @@ void PACHelper::modify(QString filename)
         QFile::remove(pac);
     }
     QFile::copy(filename, pac);
-    QFile::setPermissions(pac, QFile::WriteOwner | QFile::ReadOwner | QFile::ReadGroup | QFile::ReadOther);
+    Utils::setPermisison(pac);
     QByteArray fileData;
     QFile file(pac);
     file.open(QIODevice::ReadWrite); // open for read and write
     fileData = file.readAll(); // read all the data into the byte array
     QString text(fileData); // add to text string for easy string replace
-    text.replace(QString("__SOCKS5__"), QString("SOCKS5 127.0.0.1:%1").arg(QString::number(conf->getSocks5Port())));
-    text.replace(QString("__SOCKS__"), QString("SOCKS 127.0.0.1:%1").arg(QString::number(conf->getSocks5Port())));
-    text.replace(QString("__PROXY__"), QString("PROXY 127.0.0.1:%1").arg(QString::number(conf->getHttpPort())));
+    text.replace(QString("__SOCKS5__"), QString("SOCKS5 127.0.0.1:%1").arg(QString::number(conf->getInboundSettings()["socks5LocalPort"].toInt())));
+    text.replace(QString("__SOCKS__"), QString("SOCKS 127.0.0.1:%1").arg(QString::number(conf->getInboundSettings()["socks5LocalPort"].toInt())));
+    text.replace(QString("__PROXY__"), QString("PROXY 127.0.0.1:%1").arg(QString::number(conf->getInboundSettings()["httpLocalPort"].toInt())));
     if (filename == configDir.path() + "/trojan_gfw.pac")
         text.replace(QString("__RULES__"), loadRules().toJson());
     file.seek(0); // go to the beginning of the file

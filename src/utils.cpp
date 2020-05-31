@@ -1,4 +1,8 @@
 #include "utils.h"
+#include "confighelper.h"
+#include <QCoreApplication>
+#include <QDir>
+#include <QStandardPaths>
 
 Utils::Utils()
 {}
@@ -16,3 +20,48 @@ QString Utils::Base64UrlDecode(QString encodedText)
     QString plainText = QByteArray::fromBase64(encodedArray, QByteArray::Base64Option::OmitTrailingEquals);
     return plainText;
 }
+
+QStringList Utils::splitLines(const QString &string)
+{
+    return string.split(QRegExp("[\r\n]"), QString::SkipEmptyParts);
+}
+
+QString Utils::toCamelCase(const QString& s)
+{
+    QStringList parts = s.split(' ', QString::SkipEmptyParts);
+    for (int i = 0; i < parts.size(); ++i)
+        parts[i].replace(0, 1, parts[i][0].toUpper());
+
+    return parts.join(" ");
+}
+
+
+QString Utils::getLogDir()
+{
+#if defined (Q_OS_WIN)
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+#elif defined(Q_OS_MAC)
+    return QStandardPaths::writableLocation(QStandardPaths::HomeLocation) + "/Library/Logs/Trojan-Qt5";
+#elif defined (Q_OS_LINUX)
+    return QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + "/trojan-qt5";
+#endif
+}
+
+void Utils::setPermisison(QString &file)
+{
+    QFile::setPermissions(file, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadGroup | QFile::WriteGroup);
+}
+
+/*
+QString Utils::getLocalAddr()
+{
+#ifdef Q_OS_WIN
+    QString configFile = qApp->applicationDirPath() + "/config.ini";
+#else
+    QDir configDir = QDir::homePath() + "/.config/trojan-qt5";
+    QString configFile = configDir.absolutePath() + "/config.ini";
+#endif
+
+    ConfigHelper *conf = new ConfigHelper(configFile);
+    return
+}*/

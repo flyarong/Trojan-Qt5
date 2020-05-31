@@ -5,7 +5,7 @@
 #include <QCoreApplication>
 #endif
 
-using namespace api;
+using namespace trojan::api;
 using grpc::Channel;
 using grpc::ClientContext;
 using grpc::Status;
@@ -17,12 +17,10 @@ TrojanGoAPI::TrojanGoAPI()
     connect(thread, SIGNAL(started()), this, SLOT(run()));
 }
 
-
 TrojanGoAPI::~TrojanGoAPI()
 {
     stop();
     thread->wait();
-    thread = nullptr;
     delete thread;
 }
 
@@ -40,7 +38,7 @@ void TrojanGoAPI::start()
 void TrojanGoAPI::run()
 {
 #ifdef Q_OS_WIN
-    QString configFile = QCoreApplication::applicationDirPath() + "/config.ini";
+    QString configFile = qApp->applicationDirPath() + "/config.ini";
 #else
     QDir configDir = QDir::homePath() + "/.config/trojan-qt5";
     QString configFile = configDir.absolutePath() + "/config.ini";
@@ -48,7 +46,7 @@ void TrojanGoAPI::run()
 
     ConfigHelper *conf = new ConfigHelper(configFile);
 
-    QString address = QString("127.0.0.1:%1").arg(conf->getTrojanAPIPort());
+    QString address = QString("127.0.0.1:%1").arg(conf->getTrojanSettings()["trojanAPIPort"].toInt());
 
     while (running) {
 
@@ -57,14 +55,14 @@ void TrojanGoAPI::run()
         Stub = service.NewStub(Channel);
         GetTrafficResponse reply;
         GetTrafficRequest request;
-        User = new ::api::User;
+        User = new ::trojan::api::User;
         User->set_password(password.toUtf8().data());
         request.set_allocated_user(User);
         ClientContext context;
         Status status = Stub->GetTraffic(&context, request, &reply);
 
         if (!status.ok()) {
-            Logger::error(QString("Trojan API Request failed: %1 (%2)").arg(status.error_code()).arg(QString::fromStdString(status.error_message())));
+            Logger::error(QString("[API] Trojan API Request failed: %1 (%2)").arg(status.error_code()).arg(QString::fromStdString(status.error_message())));
         }
 
         quint64 up = reply.speed_current().upload_speed();

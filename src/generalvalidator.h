@@ -24,7 +24,10 @@
 class GeneralValidator
 {
 public:
+    static bool validateSS(const QString &input);
+    static bool validateSSOld(const QString &input);
     static bool validateSSR(const QString &input);
+    static bool validateVmess(const QString &input);
     static bool validateTrojan(const QString &input);
     static bool validatePort(const QString &port);
 

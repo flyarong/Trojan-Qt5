@@ -11,7 +11,7 @@ UserRules::UserRules(QWidget *parent) :
     ui(new Ui::UserRules)
 {
 #ifdef Q_OS_WIN
-    configDir = QDir::toNativeSeparators(QCoreApplication::applicationDirPath()) + "\\pac";
+    configDir = QDir::toNativeSeparators(qApp->applicationDirPath()) + "\\pac";
 #else
     configDir = QDir::homePath() + "/.config/trojan-qt5/pac";
 #endif
@@ -39,7 +39,7 @@ void UserRules::onAccepted()
      QTextStream out(&file);
      //must manually set utf-8 encoing otherwise the text will have garbled characters
      out.setCodec(QTextCodec::codecForName("utf-8"));
-     out << ui->textEdit->document()->toPlainText();
+     out << ui->textEdit->document()->toPlainText().replace("\r\n", "\n");
      file.close();
 
      this->accept();
